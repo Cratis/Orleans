@@ -1,0 +1,64 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageVersionOverrideEnabled>false</CentralPackageVersionOverrideEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Orleans -->
+    <PackageVersion Include="Microsoft.Orleans.Core.Abstractions" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Client" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Server" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Sdk" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Serialization" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Serialization.Abstractions" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Serialization.SystemTextJson" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.3.1" />
+    <PackageVersion Include="Microsoft.Orleans.Analyzers" Version="10.3.1" />
+    <PackageVersion Include="OrleansTestKit10" Version="10.0.0" />
+    <!--
+      Orleans.Providers.MongoDB has no Orleans 10 release - 9.5.0 is a 9.x binary running on the 10.x
+      runtime. Only cluster membership and grain storage are safe to use from it; the 9.x reminder table
+      hangs the 10.x reminder service. See the hosting documentation in Source/Orleans/Hosting.
+    -->
+    <PackageVersion Include="Orleans.Providers.MongoDB" Version="9.5.0" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.11.2" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.401" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+
+    <!-- EF Core (SQL storage) -->
+    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.14.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+
+    <!-- Cratis -->
+    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.14.0" />
+    <PackageVersion Include="Cratis.Fundamentals" Version="7.19.2" />
+    <PackageVersion Include="Cratis.Metrics.Roslyn" Version="7.19.2" />
+    <PackageVersion Include="Cratis.Specifications" Version="4.0.0" />
+    <PackageVersion Include="Cratis.Specifications.XUnit" Version="4.1.0" />
+
+    <!-- Serialization & primitives -->
+    <PackageVersion Include="System.Text.Json" Version="10.0.11" />
+    <PackageVersion Include="OneOf" Version="3.0.271" />
+    <PackageVersion Include="OneOf.SourceGenerator" Version="3.0.271" />
+    <PackageVersion Include="System.Reactive" Version="7.0.0" />
+
+    <!-- Analyzers (referenced PrivateAssets="All" from Directory.Build.props) -->
+    <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" NoWarn="NU5104" />
+    <PackageVersion Include="Roslynator.Analyzers" Version="5.0.0" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.253" />
+
+    <!-- Specs -->
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
+    <PackageVersion Include="NSubstitute" Version="6.2.0" />
+  </ItemGroup>
+  <Import Project="$(MSBuildThisFileDirectory)/Directory.Packages.NET8.props" Condition=" '$(TargetFramework)' == 'net8.0' " />
+  <Import Project="$(MSBuildThisFileDirectory)/Directory.Packages.NET9.props" Condition=" '$(TargetFramework)' == 'net9.0' " />
+</Project>
