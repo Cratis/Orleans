@@ -117,7 +117,7 @@ jobs:
           user: ${{ secrets.NUGET_USER }}
 
       - name: Push NuGet packages
-        run: dotnet nuget push --skip-duplicate '${{ env.NUGET_OUTPUT }}/*.nupkg' --timeout 900
+        run: dotnet nuget push --skip-duplicate '${{ env.NUGET_OUTPUT }}/*.nupkg' --timeout 900 --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
 
   verify-published:
     # A merged pull request that publishes nothing is the failure mode that silently costs a release: the release
