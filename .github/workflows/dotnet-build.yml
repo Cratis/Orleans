@@ -23,7 +23,7 @@ on:
     branches:
       - "**"
     paths:
-      - "Source/DotNET/**"
+      - "Source/**"
 
 jobs:
   build:
