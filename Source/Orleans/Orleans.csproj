@@ -14,6 +14,14 @@
         <PackageReference Include="Microsoft.Orleans.Sdk" />
         <PackageReference Include="Microsoft.Orleans.Core.Abstractions" />
         <PackageReference Include="Microsoft.Orleans.Server" />
+        <PackageReference Include="Orleans.Providers.MongoDB" />
+        <!-- Transitive pins: Orleans.Providers.MongoDB 9.5.0 floats vulnerable SharpCompress/Snappier versions. -->
+        <PackageReference Include="SharpCompress" />
+        <PackageReference Include="Snappier" />
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="buildTransitive/Cratis.Orleans.targets" Pack="true" PackagePath="buildTransitive" Visible="false" />
         <PackageReference Include="Microsoft.Orleans.Serialization" />
         <PackageReference Include="Cratis.Fundamentals" />
         <PackageReference Include="Cratis.Metrics.Roslyn" PrivateAssets="all" />

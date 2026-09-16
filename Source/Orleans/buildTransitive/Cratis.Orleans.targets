@@ -1,0 +1,77 @@
+<Project>
+  <!--
+    Guards the Orleans package pair against a version split (see Cratis/StudioIssues#196 for the original
+    incident). Orleans.Providers.MongoDB targets Orleans 9 and asks for Microsoft.Orleans.Reminders 9.0.1,
+    while the rest of the stack is pinned to Orleans 10. A 9.x Reminders assembly against a 10.x runtime
+    throws MissingMethodException the instant a silo builds its grain services - LocalReminderService derives
+    from GrainService, whose constructor changed between the two majors. Debug typically resolves this
+    correctly because test-only PackageReferences also ask for the aligned version and win the resolution,
+    and Release - the only configuration where the mismatch is even possible - never runs a silo, so nothing
+    exercises the broken path.
+
+    This target closes that blind spot at the one place a Debug build cannot paper over it: it reads the
+    resolved package graph straight out of this project's own Release restore output (obj/project.assets.json)
+    and fails the build the moment Microsoft.Orleans.Reminders resolves to a different version than
+    Microsoft.Orleans.Server. Projects that reference neither package pass through untouched.
+  -->
+  <UsingTask TaskName="VerifyOrleansPackageAlignment" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <AssetsFile ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="Microsoft.Build.Utilities" />
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+        if (!File.Exists(AssetsFile))
+        {
+            return true;
+        }
+
+        var assetsFileContent = File.ReadAllText(AssetsFile);
+
+        string? ResolvedVersionOf(string packageId)
+        {
+            var marker = "\"" + packageId + "/";
+            var start = assetsFileContent.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return null;
+            }
+
+            start += marker.Length;
+            var end = assetsFileContent.IndexOf('"', start);
+            return end < 0 ? null : assetsFileContent.Substring(start, end - start);
+        }
+
+        var reminders = ResolvedVersionOf("Microsoft.Orleans.Reminders");
+        var server = ResolvedVersionOf("Microsoft.Orleans.Server");
+
+        if (reminders is null || server is null)
+        {
+            Log.LogMessage(MessageImportance.Low, $"Orleans package alignment check skipped - Reminders ('{reminders ?? "missing"}') and/or Server ('{server ?? "missing"}') not referenced by this project.");
+            return true;
+        }
+
+        if (!string.Equals(reminders, server, StringComparison.Ordinal))
+        {
+            Log.LogError(
+                $"Microsoft.Orleans.Reminders resolved to {reminders} but Microsoft.Orleans.Server resolved to {server}. " +
+                "A Reminders assembly from a different Orleans major throws MissingMethodException the moment a silo builds its grain services. " +
+                "Pin Microsoft.Orleans.Reminders in Directory.Packages.props (and keep its direct PackageReference) so it resolves to the same version as the rest of Orleans.");
+            return false;
+        }
+
+        Log.LogMessage(MessageImportance.Low, $"Orleans package alignment OK - Microsoft.Orleans.Reminders and Microsoft.Orleans.Server both resolved to {reminders}.");
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="VerifyOrleansPackageAlignment"
+          AfterTargets="ResolvePackageAssets"
+          Condition="'$(Configuration)' == 'Release'">
+    <VerifyOrleansPackageAlignment AssetsFile="$(ProjectAssetsFile)" />
+  </Target>
+</Project>
