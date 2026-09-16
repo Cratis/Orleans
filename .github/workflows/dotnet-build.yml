@@ -24,11 +24,19 @@ on:
       - "**"
     paths:
       - "Source/**"
+      - "Integration/**"
+      - ".github/workflows/dotnet-build.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The integration specs run the job system end to end against a real MongoDB.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
 
     steps:
       - name: Checkout code
@@ -40,4 +48,4 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Build & run tests for root
-        run: dotnet test --configuration Release
+        run: dotnet test --configuration Debug
