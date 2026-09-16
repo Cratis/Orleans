@@ -3,6 +3,7 @@
 
 using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.MongoDB;
+using Cratis.Orleans.Storage.MongoDB.Jobs;
 using Cratis.Orleans.Storage.MongoDB.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Driver;
@@ -32,6 +33,7 @@ public static class MongoDBJobsStorageServiceCollectionExtensions
             services.Configure(configure);
         }
         services.AddSingleton<ICustomSerializers, CustomSerializers>();
+        services.AddSingleton<JobStateSerializer>();
         services.AddSingleton<IJobsStorage, MongoDBJobsStorage>();
         return services;
     }

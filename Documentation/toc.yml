@@ -1,0 +1,10 @@
+- name: Overview
+  href: index.md
+- name: Getting started
+  href: getting-started/toc.yml
+- name: Concepts
+  href: concepts/toc.yml
+- name: How-to
+  href: how-to/toc.yml
+- name: Reference
+  href: reference/toc.yml
