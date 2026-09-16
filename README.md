@@ -13,7 +13,7 @@ these packages, together with Direct and Studio.
 | Package | What it holds |
 | --- | --- |
 | `Cratis.Orleans` | The Job system engine (job, job step and jobs manager grains), the `Workers` background-task pattern, typed grain keys, Orleans serializers for Cratis primitives (`ConceptAs`, OneOf, …), and the silo hosting tooling (clustering, grain storage registration, reminders guidance, package-alignment guard) |
-| `Cratis.Orleans.Storage` | The storage API for jobs and job steps — `IJobStorage` / `IJobStepStorage`, job and job step state, errors — plus the scoped storage accessor the engine resolves storage through |
+| `Cratis.Orleans.Storage` | The storage API for jobs and job steps — `IJobStorage` / `IJobStepStorage`, job and job step state, errors — plus the scoped storage accessor the engine resolves storage through, and an in-memory provider for testing |
 | `Cratis.Orleans.Storage.MongoDB` | MongoDB implementation of the jobs storage API |
 | `Cratis.Orleans.Storage.Sql` | SQL (EF Core: SQL Server, PostgreSQL, SQLite) implementation of the jobs storage API |
 
@@ -25,6 +25,12 @@ dotnet build
 
 Packages target `net8.0;net9.0;net10.0` when packed (`-p:IsPackaging=true`); the development
 loop builds `net10.0` only.
+
+## Documentation and integration specs
+
+`Documentation/` holds the product documentation, and `Integration/` contains end-to-end specs running the
+whole stack - co-hosted silo, MongoDB jobs storage, real grains - against a real MongoDB on
+`localhost:27017`.
 
 ## Release
 

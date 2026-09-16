@@ -6,4 +6,7 @@
         <Project Path="Source/Orleans.Storage.MongoDB/Orleans.Storage.MongoDB.csproj" />
         <Project Path="Source/Orleans.Storage.Sql/Orleans.Storage.Sql.csproj" />
     </Folder>
+    <Folder Name="/Integration/">
+        <Project Path="Integration/Jobs.Integration/Jobs.Integration.csproj" />
+    </Folder>
 </Solution>

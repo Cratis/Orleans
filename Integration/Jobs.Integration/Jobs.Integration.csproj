@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Jobs.Integration</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Jobs.Integration</RootNamespace>
+        <IsTestProject>true</IsTestProject>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" />
+
+        <PackageReference Include="Cratis.Specifications.XUnit" />
+        <PackageReference Include="NSubstitute" />
+        <PackageReference Include="xunit" />
+        <PackageReference Include="xunit.runner.visualstudio" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../Source/Orleans/Orleans.csproj" />
+        <ProjectReference Include="../../Source/Orleans.Storage/Orleans.Storage.csproj" />
+        <ProjectReference Include="../../Source/Orleans.Storage.MongoDB/Orleans.Storage.MongoDB.csproj" />
+    </ItemGroup>
+</Project>

@@ -23,6 +23,7 @@
     <ItemGroup>
         <None Include="buildTransitive/Cratis.Orleans.targets" Pack="true" PackagePath="buildTransitive" Visible="false" />
         <PackageReference Include="Microsoft.Orleans.Serialization" />
+        <PackageReference Include="Microsoft.Orleans.Serialization.SystemTextJson" />
         <PackageReference Include="Cratis.Fundamentals" />
         <PackageReference Include="Cratis.Metrics.Roslyn" PrivateAssets="all" />
         <PackageReference Include="OneOf" />

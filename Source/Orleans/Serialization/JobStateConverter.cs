@@ -1,6 +1,8 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+#pragma warning disable IDE0005 // Required: JobState lives in Cratis.Orleans.Storage.Jobs; the analyzer misreports it.
+
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -8,7 +10,7 @@ using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
 using Cratis.Strings;
 
-namespace Cratis.Orleans.Storage.Sql.Jobs;
+namespace Cratis.Orleans.Jobs;
 
 /// <summary>
 /// Represents a <see cref="JsonConverter{T}"/> that can convert <see cref="JobState"/>.

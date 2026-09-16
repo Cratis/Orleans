@@ -1,10 +1,14 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage;
+using Cratis.Types;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Providers.MongoDB.Configuration;
 using Orleans.Runtime.Hosting;
@@ -61,6 +65,17 @@ public static class CratisOrleansSiloBuilderExtensions
             // Serializable types in client-facing assemblies can make Orleans' configuration analyzer fail at
             // startup on types this silo never serializes. Skip the analysis unless it is asked for.
             silo.Services.Configure<TypeManifestOptions>(typeManifestOptions => typeManifestOptions.EnableConfigurationAnalysis = false);
+
+            // Serializers for ConceptAs types crossing grain boundaries - job ids, names, statuses and the
+            // like. Registering them here means a host never has to know about them.
+            silo.Services.AddCratisOrleansSerializers();
+
+            // The job system's own collaborators: type discovery, the job type registry, the step throttle and
+            // the options both read. TryAdd keeps host registrations in charge where they exist.
+            silo.Services.TryAddSingleton<ITypes>(_ => new Cratis.Types.Types());
+            silo.Services.TryAddSingleton<IJobTypes, JobTypes>();
+            silo.Services.TryAddSingleton<IJobStepThrottle, JobStepThrottle>();
+            silo.Services.TryAddSingleton<IOptions<JobsOptions>>(_ => Options.Create(new JobsOptions()));
 
             silo.UseMongoDBClient(options.ConnectionString);
 

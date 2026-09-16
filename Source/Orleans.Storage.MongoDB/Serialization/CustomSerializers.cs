@@ -1,11 +1,14 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Arc.MongoDB;
 using Cratis.DependencyInjection;
 using Cratis.Reflection;
 using Cratis.Types;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 
 namespace Cratis.Orleans.Storage.MongoDB.Serialization;
 
@@ -26,6 +29,14 @@ public class CustomSerializers(IServiceProvider serviceProvider, ITypes types) :
         {
             return;
         }
+
+        // The MongoDB driver 3.x defaults Guid serialization to Unspecified, which throws the moment a Guid
+        // is rendered - into a filter, a key or a document. Everything Cratis stores uses the standard
+        // representation.
+        BsonSerializer.TryRegisterSerializer(new GuidSerializer(GuidRepresentation.Standard));
+
+        // Concepts (ConceptAs<T>) serialize as their underlying value through Arc's serialization provider.
+        BsonSerializer.RegisterSerializationProvider(new ConceptSerializationProvider());
 
         foreach (var type in types.FindMultiple<IBsonSerializationProvider>().Where(IsEligibleForAutoRegistration))
         {
