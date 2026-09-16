@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Storage</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Storage</RootNamespace>
+        <Description>Storage API for the Cratis.Orleans job system - job and job step storage abstractions and state</Description>
+        <PackageTags>orleans;jobs;storage;cratis</PackageTags>
+        <RepositoryUrl>https://github.com/Cratis/Orleans</RepositoryUrl>
+        <ProjectUrl>https://github.com/Cratis/Orleans</ProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Orleans.Core.Abstractions" />
+        <PackageReference Include="Cratis.Fundamentals" />
+        <PackageReference Include="OneOf" />
+        <PackageReference Include="System.Reactive" />
+    </ItemGroup>
+</Project>

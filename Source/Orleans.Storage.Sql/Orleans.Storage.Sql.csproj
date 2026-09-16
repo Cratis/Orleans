@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Storage.Sql</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Storage.Sql</RootNamespace>
+        <Description>SQL storage provider (EF Core: SQL Server, PostgreSQL, SQLite) for the Cratis.Orleans job system</Description>
+        <PackageTags>orleans;jobs;storage;sql;efcore;cratis</PackageTags>
+        <RepositoryUrl>https://github.com/Cratis/Orleans</RepositoryUrl>
+        <ProjectUrl>https://github.com/Cratis/Orleans</ProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <!-- EF Core 10 ships net10.0 only, so the SQL provider does too; the other packages keep the
+             repository-wide net8.0/net9.0/net10.0 packaging matrix. -->
+        <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net10.0</TargetFrameworks>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Cratis.Arc.EntityFrameworkCore" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../Orleans/Orleans.csproj" />
+        <ProjectReference Include="../Orleans.Storage/Orleans.Storage.csproj" />
+    </ItemGroup>
+</Project>
