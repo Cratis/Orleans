@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Storage.MongoDB</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Storage.MongoDB</RootNamespace>
+        <Description>MongoDB storage provider for the Cratis.Orleans job system</Description>
+        <PackageTags>orleans;jobs;storage;mongodb;cratis</PackageTags>
+        <RepositoryUrl>https://github.com/Cratis/Orleans</RepositoryUrl>
+        <ProjectUrl>https://github.com/Cratis/Orleans</ProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="MongoDB.Driver" />
+        <PackageReference Include="Cratis.Arc.MongoDB" />
+        <PackageReference Include="System.Reactive" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../Orleans/Orleans.csproj" />
+        <ProjectReference Include="../Orleans.Storage/Orleans.Storage.csproj" />
+    </ItemGroup>
+</Project>

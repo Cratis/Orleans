@@ -1,0 +1,39 @@
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+namespace Cratis.Orleans.Jobs;
+
+/// <summary>
+/// Represents a key for a <see cref="IJobsManager"/>.
+/// </summary>
+/// <param name="Scope">The storage scope the jobs manager is for — opaque to the engine.</param>
+/// <param name="Namespace">The namespace within the scope the jobs manager is for.</param>
+public record JobsManagerKey(string Scope, string Namespace)
+{
+    /// <summary>
+    /// Gets the not set <see cref="JobsManagerKey"/>.
+    /// </summary>
+    public static readonly JobsManagerKey NotSet = new(string.Empty, string.Empty);
+
+    /// <summary>
+    /// Implicitly convert from <see cref="JobsManagerKey"/> to string.
+    /// </summary>
+    /// <param name="key"><see cref="JobsManagerKey"/> to convert from.</param>
+    public static implicit operator string(JobsManagerKey key) => key.ToString();
+
+    /// <summary>
+    /// Implicitly convert from string to <see cref="JobsManagerKey"/>.
+    /// </summary>
+    /// <param name="key">String representation to convert from.</param>
+    public static implicit operator JobsManagerKey(string key) => Parse(key);
+
+    /// <inheritdoc/>
+    public override string ToString() => KeyHelper.Combine(Scope, Namespace);
+
+    /// <summary>
+    /// Parse a key into its components.
+    /// </summary>
+    /// <param name="key">Key to parse.</param>
+    /// <returns>Parsed <see cref="JobsManagerKey"/> instance.</returns>
+    public static JobsManagerKey Parse(string key) => KeyHelper.Parse<JobsManagerKey>(key);
+}

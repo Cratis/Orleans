@@ -1,0 +1,9 @@
+<Solution>
+    <Folder Name="/Source/">
+        <Project Path="Source/Orleans/Orleans.csproj" />
+        <Project Path="Source/Orleans.Specs/Orleans.Specs.csproj" />
+        <Project Path="Source/Orleans.Storage/Orleans.Storage.csproj" />
+        <Project Path="Source/Orleans.Storage.MongoDB/Orleans.Storage.MongoDB.csproj" />
+        <Project Path="Source/Orleans.Storage.Sql/Orleans.Storage.Sql.csproj" />
+    </Folder>
+</Solution>
