@@ -5,11 +5,11 @@ using Microsoft.Extensions.Logging;
 
 namespace Cratis.Orleans.Jobs;
 
-internal static partial class JobStepThrottleLogMessages
+public static partial class JobStepThrottleLogMessages
 {
     [LoggerMessage(LogLevel.Debug, "Acquiring job step slot")]
-    internal static partial void AcquiringJobStepSlot(this ILogger<JobStepThrottle> logger);
+    public static partial void AcquiringJobStepSlot(this ILogger<JobStepThrottle> logger);
 
     [LoggerMessage(LogLevel.Debug, "Releasing job step slot")]
-    internal static partial void ReleasingJobStepSlot(this ILogger<JobStepThrottle> logger);
+    public static partial void ReleasingJobStepSlot(this ILogger<JobStepThrottle> logger);
 }
