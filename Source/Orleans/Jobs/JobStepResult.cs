@@ -47,7 +47,7 @@ public class JobStepResult(Result<object, PerformJobStepError> result)
     /// <param name="jsonSerializerOptions">The <see cref="JsonSerializerOptions"/> to use for deserialization.</param>
     /// <typeparam name="TResult">The type of the result.</typeparam>
     /// <returns>True if full result, false if partial or none result.</returns>
-    public bool TryGetFullResult<TResult>([NotNullWhen(true)] out TResult? result, [NotNullWhen(false)] out PerformJobStepError? error, JsonSerializerOptions jsonSerializerOptions)
+    public bool TryGetFullResult<TResult>([NotNullWhen(true)] out TResult result, [NotNullWhen(false)] out PerformJobStepError error, JsonSerializerOptions jsonSerializerOptions)
         where TResult : class
     {
         error = null;
@@ -67,5 +67,5 @@ public class JobStepResult(Result<object, PerformJobStepError> result)
     /// </summary>
     /// <param name="error">The optional error.</param>
     /// <returns>True if error, false if not.</returns>
-    public bool TryGetError([NotNullWhen(true)] out PerformJobStepError? error) => _result.TryGetError(out error);
+    public bool TryGetError([NotNullWhen(true)] out PerformJobStepError error) => _result.TryGetError(out error);
 }
