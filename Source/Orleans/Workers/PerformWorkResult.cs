@@ -12,7 +12,7 @@ public record PerformWorkResult<TResult>
     /// <summary>
     /// The optional result. This can be present even if there was an <see cref="PerformWorkError"/>.
     /// </summary>
-    public TResult? Result { get; init; }
+    public TResult Result { get; init; } = default!;
 
     /// <summary>
     /// The <see cref="PerformWorkError"/>.
@@ -22,7 +22,7 @@ public record PerformWorkResult<TResult>
     /// <summary>
     /// The optional <see cref="Exception"/>.
     /// </summary>
-    public Exception? Exception { get; init; }
+    public Exception Exception { get; init; } = null!;
 
     /// <summary>
     /// Gets a value indicating whether there is a result.

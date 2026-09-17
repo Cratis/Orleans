@@ -12,7 +12,7 @@ namespace Cratis.Orleans.Jobs;
 /// <param name="ExceptionStackTrace">The optional exception stack trace.</param>
 /// <param name="Cancelled">Whether the job step was cancelled.</param>
 [GenerateSerializer]
-public record PerformJobStepError(object? PartialResult, IList<string>? ErrorMessages, string? ExceptionStackTrace, bool Cancelled)
+public record PerformJobStepError(object PartialResult, IList<string> ErrorMessages, string ExceptionStackTrace, bool Cancelled)
 {
     static readonly IList<string> _cancelledErrorMessage = ["Job step task was cancelled"];
 
@@ -27,7 +27,7 @@ public record PerformJobStepError(object? PartialResult, IList<string>? ErrorMes
     /// <param name="errorMessages">The error messages.</param>
     /// <param name="exceptionStackTrace">The optional exception stack trace.</param>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
-    public static PerformJobStepError Failed(IEnumerable<string> errorMessages, string? exceptionStackTrace) =>
+    public static PerformJobStepError Failed(IEnumerable<string> errorMessages, string exceptionStackTrace) =>
         new(Enumerable.Empty<string>(), errorMessages.ToList(), exceptionStackTrace, false);
 
     /// <summary>
@@ -45,7 +45,7 @@ public record PerformJobStepError(object? PartialResult, IList<string>? ErrorMes
     /// <param name="errorMessages">The error messages.</param>
     /// <param name="exceptionStackTrace">The optional exception stack trace.</param>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
-    public static PerformJobStepError FailedWithPartialResult(object partialResult, IEnumerable<string> errorMessages, string? exceptionStackTrace) =>
+    public static PerformJobStepError FailedWithPartialResult(object partialResult, IEnumerable<string> errorMessages, string exceptionStackTrace) =>
         new(partialResult, errorMessages.ToList(), exceptionStackTrace, false);
 
     /// <summary>
@@ -78,7 +78,7 @@ public record PerformJobStepError(object? PartialResult, IList<string>? ErrorMes
     /// <param name="result">The outputted partial <typeparamref name="TResult"/> result.</param>
     /// <typeparam name="TResult">The type of the result.</typeparam>
     /// <returns>True if present, false if not.</returns>
-    public bool TryGetPartialResult<TResult>([NotNullWhen(true)] out TResult? result)
+    public bool TryGetPartialResult<TResult>([NotNullWhen(true)] out TResult result)
         where TResult : class
     {
         result = PartialResult as TResult;
