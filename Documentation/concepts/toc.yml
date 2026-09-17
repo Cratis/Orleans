@@ -2,3 +2,7 @@
   href: jobs.md
 - name: Storage scopes
   href: storage-scopes.md
+- name: Workers
+  href: workers.md
+- name: Serializers and grain keys
+  href: serializers-and-keys.md
