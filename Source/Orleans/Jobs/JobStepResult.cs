@@ -13,24 +13,24 @@ namespace Cratis.Orleans.Jobs;
 /// </summary>
 /// <param name="result">The result.</param>
 [GenerateSerializer]
-public class JobStepResult(Result<object?, PerformJobStepError> result)
+public class JobStepResult(Result<object, PerformJobStepError> result)
 {
     [Id(0)]
-    readonly Result<object?, PerformJobStepError> _result = result;
+    readonly Result<object, PerformJobStepError> _result = result;
 
     /// <summary>
     /// Creates a succeeded <see cref="JobStepResult"/>.
     /// </summary>
     /// <param name="input">The optional result object.</param>
     /// <returns>The <see cref="JobStepResult"/>.</returns>
-    public static JobStepResult Succeeded(object? input = default) => new(Result.Success<object?, PerformJobStepError>(input));
+    public static JobStepResult Succeeded(object? input = default) => new(Result.Success<object, PerformJobStepError>(input ?? string.Empty));
 
     /// <summary>
     /// Creates a failed <see cref="JobStepResult"/>.
     /// </summary>
     /// <param name="input">The error messages.</param>
     /// <returns>The <see cref="JobStepResult"/>.</returns>
-    public static JobStepResult Failed(PerformJobStepError input) => new(Result<object?, PerformJobStepError>.Failed(input));
+    public static JobStepResult Failed(PerformJobStepError input) => new(Result<object, PerformJobStepError>.Failed(input));
 
     /// <summary>
     /// Creates a failed <see cref="JobStepResult"/>.
