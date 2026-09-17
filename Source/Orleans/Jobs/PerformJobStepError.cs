@@ -36,7 +36,7 @@ public record PerformJobStepError(object PartialResult, IList<string> ErrorMessa
     /// <param name="exception">The exception that occurred.</param>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
     public static PerformJobStepError Failed(Exception exception) =>
-        new(default, exception.GetAllMessages().ToList(), exception.StackTrace, false);
+        new(string.Empty, exception.GetAllMessages().ToList(), exception.StackTrace ?? string.Empty, false);
 
     /// <summary>
     /// Creates <see cref="PerformJobStepError"/> for a partially failed job step.
@@ -55,7 +55,7 @@ public record PerformJobStepError(object PartialResult, IList<string> ErrorMessa
     /// <param name="exception">The exception.</param>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
     public static PerformJobStepError FailedWithPartialResult(object partialResult, Exception exception) =>
-        FailedWithPartialResult(partialResult, exception.GetAllMessages(), exception.StackTrace);
+        FailedWithPartialResult(partialResult, exception.GetAllMessages(), exception.StackTrace ?? string.Empty);
 
     /// <summary>
     /// Creates <see cref="PerformJobStepError"/> for a cancelled job step with partial result.
@@ -63,14 +63,14 @@ public record PerformJobStepError(object PartialResult, IList<string> ErrorMessa
     /// <param name="partialResult">The partial result.</param>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
     public static PerformJobStepError CancelledWithPartialResult(object partialResult) =>
-        new(partialResult, _cancelledErrorMessage, default, true);
+        new(partialResult, _cancelledErrorMessage, string.Empty, true);
 
     /// <summary>
     /// Creates <see cref="PerformJobStepError"/> for a cancelled job step with partial result.
     /// </summary>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
     public static PerformJobStepError CancelledWithNoResult() =>
-        new(default, _cancelledErrorMessage, default, true);
+        new(string.Empty, _cancelledErrorMessage, string.Empty, true);
 
     /// <summary>
     /// Try to get the partial result.
@@ -81,7 +81,7 @@ public record PerformJobStepError(object PartialResult, IList<string> ErrorMessa
     public bool TryGetPartialResult<TResult>([NotNullWhen(true)] out TResult result)
         where TResult : class
     {
-        result = PartialResult as TResult;
+        result = (PartialResult as TResult)!;
         return result is not null;
     }
 }

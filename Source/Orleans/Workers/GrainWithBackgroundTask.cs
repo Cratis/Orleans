@@ -16,7 +16,7 @@ namespace Cratis.Orleans.Workers;
 /// <typeparam name="TResult">The result/response for a long-running piece of work.</typeparam>
 public abstract class GrainWithBackgroundTask<TRequest, TResult> : Grain, IGrainWithBackgroundTask<TRequest, TResult>
 {
-    ILogger<IGrainWithBackgroundTask> _logger = null!;
+    ILogger<IGrainWithBackgroundTask> _logger = NullLogger<IGrainWithBackgroundTask>.Instance;
     GrainWithBackgroundTaskStatus _status = GrainWithBackgroundTaskStatus.NotStarted;
     Result<None, Exception> _exception = default(None);
     Task? _task;
@@ -108,7 +108,7 @@ public abstract class GrainWithBackgroundTask<TRequest, TResult> : Grain, IGrain
                 }
                 if (performWorkResult.HasException)
                 {
-                    HandleException(performWorkResult.Exception!);
+                    HandleException(performWorkResult.Exception);
                     return;
                 }
                 if (!performWorkResult.IsSuccess)
