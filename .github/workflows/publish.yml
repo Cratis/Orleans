@@ -102,7 +102,7 @@ jobs:
         run: rm -rf ${{ env.NUGET_OUTPUT }}
 
       - name: Build
-        run: dotnet build --configuration Release -p:IsPackaging=true -p:CratisProxiesOutputPath=
+        run: dotnet build --configuration Release -p:IsPackaging=true -p:Version=${{ needs.release.outputs.version }} -p:CratisProxiesOutputPath=
 
       - name: Create NuGet packages
         run: |
