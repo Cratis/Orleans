@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Storage.MongoDB.Specs</AssemblyName>
+        <RootNamespace>Cratis.Orleans</RootNamespace>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Moq" />
+        <PackageReference Include="OrleansTestKit10" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../Orleans/Orleans.csproj" />
+        <ProjectReference Include="../Orleans.Storage/Orleans.Storage.csproj" />
+        <ProjectReference Include="../Orleans.Storage.MongoDB/Orleans.Storage.MongoDB.csproj" />
+    </ItemGroup>
+</Project>

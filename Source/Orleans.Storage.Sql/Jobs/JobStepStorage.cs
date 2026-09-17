@@ -9,6 +9,7 @@ using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
 using Microsoft.EntityFrameworkCore;
 using OneOf.Types;
+
 using JobStepError = Cratis.Orleans.Storage.Jobs.JobStepError;
 
 namespace Cratis.Orleans.Storage.Sql.Jobs;
