@@ -24,6 +24,7 @@
       <Using Namespace="Microsoft.Build.Utilities" />
       <Code Type="Fragment" Language="cs">
         <![CDATA[
+        #nullable enable
         if (!File.Exists(AssetsFile))
         {
             return true;
