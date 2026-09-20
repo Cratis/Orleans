@@ -1,10 +1,6 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using Cratis.Json;
-using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Serialization;
@@ -24,38 +20,22 @@ public static class SerializationConfigurationExtensions
     /// </summary>
     /// <param name="services"><see cref="IServiceCollection"/> to add to.</param>
     /// <returns><see cref="IServiceCollection"/> for continuation.</returns>
+    /// <remarks>
+    /// The JSON fallback is <see cref="CratisJsonSerializer"/>, a codec of its own rather than a claim on
+    /// Orleans' shared <c language="csharp">JsonCodec</c>. The shared codec holds a single
+    /// <c language="csharp">JsonCodecOptions.SerializerOptions</c> that every <c language="csharp">AddJsonSerializer</c>
+    /// call overwrites, so a host registering a JSON serializer for its own namespaces - after these
+    /// registrations, as any host naturally does - would silently replace the options the Cratis types
+    /// depend on. Owning the codec keeps host serializer configuration unable to reach them.
+    /// </remarks>
     public static IServiceCollection AddCratisOrleansSerializers(this IServiceCollection services)
     {
-        var options = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-        options.Converters.Add(new ConceptAsJsonConverterFactory());
-        options.Converters.Add(new JobStateConverter());
-        services.AddSingleton(options);
+        services.AddSingleton(CratisJsonSerializer.CreateSerializerOptions());
         services.AddCustomSerializers();
         services.AddConceptSerializer();
         services.AddSingleton<ITypeFilter, CratisTypesFilter>();
-        services.AddSerializer(serializerBuilder => serializerBuilder.AddJsonSerializer(
-            type =>
-            {
-                // Check if type inherits from OneOfBase - if so, exclude it from JSON serialization, the
-                // dedicated OneOf serializer owns it.
-                var current = type;
-                while (current != typeof(object) && current is not null)
-                {
-                    if (current.IsGenericType && current.GetGenericTypeDefinition().Name.Contains("OneOfBase"))
-                    {
-                        return false;
-                    }
-                    current = current.BaseType;
-                }
-
-                return type == typeof(JsonObject)
-                    || type.Namespace == "OneOf.Types"
-                    || (type.Namespace?.StartsWith("Cratis") ?? false);
-            },
-            options));
+        services.AddCompleteSerializer<CratisJsonSerializer>();
+        services.AddSerializer();
         return services;
     }
 
