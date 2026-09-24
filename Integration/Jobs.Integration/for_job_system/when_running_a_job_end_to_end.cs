@@ -12,21 +12,22 @@ namespace Cratis.Orleans.Jobs.Integration.for_job_system;
 /// <remarks>
 /// The silo is shared by every fact of the class - one deployment, one job per fact.
 /// </remarks>
+[Collection(JobsClusterCollection.Name)]
 public class when_running_a_job_end_to_end : Specification
 {
-    static JobsClusterFixture? _fixture;
+    JobsClusterFixture _fixture = null!;
     JobId _jobId;
     JobState? _jobState;
 
     void Establish()
     {
-        _fixture ??= new JobsClusterFixture();
+        _fixture = JobsClusterFixture.Shared;
         JobsClusterFixture.ResetStorage();
     }
 
     async Task Because()
     {
-        var manager = _fixture!.GrainFactory.GetJobsManager(JobsClusterFixture.Scope, string.Empty);
+        var manager = _fixture.GrainFactory.GetJobsManager(JobsClusterFixture.Scope, string.Empty);
         var result = await manager.Start<IIntegrationJob, IntegrationJobRequest>(
             new IntegrationJobRequest(["first", "second", "third"]));
         _jobId = result.Match(id => id, _ => throw new Exception("The job could not be started"));
