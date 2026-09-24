@@ -3,12 +3,13 @@
 
 using Cratis.Monads;
 using Moq;
-namespace Cratis.Orleans.Jobs.for_JobsManager;
+namespace Cratis.Orleans.Jobs.for_JobsManager.when_resuming;
 
-public class when_resuming : given.the_manager
+public class and_the_job_takes_it : given.the_manager
 {
     JobId _jobId;
     Mock<INullJobWithSomeRequest> _job;
+    bool _result;
 
     void Establish()
     {
@@ -17,8 +18,9 @@ public class when_resuming : given.the_manager
         _job.Setup(_ => _.Resume()).ReturnsAsync(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));
     }
 
-    Task Because() => _manager.Resume(_jobId);
+    async Task Because() => _result = await _manager.Resume(_jobId);
 
     [Fact] void should_get_job_from_storage() => _jobStorage.Received(1).GetJob(_jobId);
     [Fact] void should_resume_the_job() => _job.Verify(_ => _.Resume(), Times.Once);
+    [Fact] void should_report_the_job_as_taken_forward() => _result.ShouldBeTrue();
 }
