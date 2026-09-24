@@ -55,6 +55,7 @@ on:
       - "Directory.Build.props"
 
 permissions:
+  issues: write
   contents: write
 
 jobs:
