@@ -8,6 +8,7 @@ namespace Cratis.Orleans.Jobs;
 /// <summary>
 /// Represents a null <see cref="IJob"/>.
 /// </summary>
+[GrainType("cratis-orleans-null-job")]
 public class NullJob : IJob
 {
     /// <inheritdoc/>
