@@ -36,6 +36,9 @@ public class MongoDBJobsStorage(
             return storage;
         }
 
+        // Conventions first: they decide the element names the class maps are built with, and the filters
+        // this storage uses assume those names. Registering after a class map has been built is too late.
+        ConventionPacks.EnsureRegistered();
         customSerializers.Register();
         var databaseName = options.Value.DatabaseNameResolver?.Invoke(scope, @namespace)
             ?? DatabaseNames.ForJobs(scope, @namespace);

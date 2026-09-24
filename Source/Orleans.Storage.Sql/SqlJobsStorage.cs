@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Cratis.Orleans.Jobs;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -23,6 +24,7 @@ public class SqlJobsStorage(
     IOptions<SqlJobsStorageOptions> options,
     IServiceProvider serviceProvider) : IJobsStorage
 {
+    static readonly Lock _migrationLock = new();
     readonly ConcurrentDictionary<string, JobsStorage> _storageByScopeAndNamespace = new();
 
     /// <inheritdoc/>
@@ -36,11 +38,31 @@ public class SqlJobsStorage(
 
         var contextOptions = options.Value.OptionsResolver(scope, @namespace);
         Jobs.JobsDbContext ContextFactory() => new(contextOptions);
+        EnsureSchema(ContextFactory);
         var jsonSerializerOptions = serviceProvider.GetService<JsonSerializerOptions>() ?? new JsonSerializerOptions();
         storage = new JobsStorage(
             new Jobs.JobStorage(ContextFactory, jobTypes, jsonSerializerOptions),
             new Jobs.JobStepStorage(ContextFactory));
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
+    }
+
+    /// <summary>
+    /// Applies the jobs migrations so the tables exist before anything reads or writes them.
+    /// </summary>
+    /// <param name="contextFactory">Factory creating the <see cref="Jobs.JobsDbContext"/> to migrate.</param>
+    /// <remarks>
+    /// A scope and namespace can map to a database that nothing has provisioned yet, and the host only ever
+    /// hands us options - it never sees the context - so this is the one place that can guarantee the schema
+    /// is there. It runs once per scope and namespace, because <c lang="csharp">GetFor</c> caches the storage
+    /// it builds. Concurrent callers are serialized so two of them cannot race to create the same tables.
+    /// </remarks>
+    static void EnsureSchema(Func<Jobs.JobsDbContext> contextFactory)
+    {
+        lock (_migrationLock)
+        {
+            using var dbContext = contextFactory();
+            dbContext.Database.Migrate();
+        }
     }
 }

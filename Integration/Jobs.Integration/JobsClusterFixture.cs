@@ -32,7 +32,15 @@ public class JobsClusterFixture : IDisposable
     /// </summary>
     public const string DatabaseName = "orleans-integration-jobs";
 
+    static readonly Lazy<JobsClusterFixture> _shared = new(() => new JobsClusterFixture(), isThreadSafe: true);
+
     readonly WebApplication _app;
+
+    /// <summary>
+    /// Gets the one silo every spec shares. Starting a silo per spec class is slow and, because they all
+    /// target the same database, they would wipe each other's state on reset.
+    /// </summary>
+    public static JobsClusterFixture Shared => _shared.Value;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JobsClusterFixture"/> class.
@@ -41,6 +49,10 @@ public class JobsClusterFixture : IDisposable
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.AddConsole();
+
+        // Bind an ephemeral port. The silo is only ever reached in-process through its grain factory, and a
+        // fixed port means a second spec class - or anything else on the machine - cannot start one.
+        builder.Configuration["urls"] = "http://127.0.0.1:0";
 
         builder.AddCratisOrleans(new CratisOrleansOptions
         {
@@ -60,6 +72,11 @@ public class JobsClusterFixture : IDisposable
     /// Gets the grain factory of the running silo.
     /// </summary>
     public IGrainFactory GrainFactory => _app.Services.GetRequiredService<IGrainFactory>();
+
+    /// <summary>
+    /// Gets the services of the running silo, for reaching the storage the job system actually wrote to.
+    /// </summary>
+    public IServiceProvider Services => _app.Services;
 
     /// <summary>
     /// Wipes the jobs database, so every spec starts from nothing.

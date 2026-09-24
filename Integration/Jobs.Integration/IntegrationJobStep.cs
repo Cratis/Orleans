@@ -21,18 +21,32 @@ public class IntegrationJobStep(
     IJobStepThrottle throttle,
     ILogger<IntegrationJobStep> logger) : JobStep<string, string, IntegrationJobStepState>(state, throttle, logger), IIntegrationJobStep
 {
+    /// <summary>
+    /// A step whose item contains this fails, so a spec can drive the failure path without a second step type.
+    /// </summary>
+    public const string FailingItem = "fail";
+
     /// <inheritdoc/>
     protected override Task<Result<PrepareJobStepError>> PrepareStep(string request) =>
         Task.FromResult(Result<PrepareJobStepError>.Success());
 
     /// <inheritdoc/>
-    protected override ValueTask InitializeState(string request) => ValueTask.CompletedTask;
+    protected override ValueTask InitializeState(string request)
+    {
+        State.Item = request;
+        return ValueTask.CompletedTask;
+    }
 
     /// <inheritdoc/>
     protected override async Task<Catch<JobStepResult>> PerformStep(IntegrationJobStepState currentState, CancellationToken cancellationToken)
     {
         await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
-        return Catch<JobStepResult>.Success(JobStepResult.Succeeded(currentState.Name?.Value ?? string.Empty));
+        if (string.Equals(currentState.Item, FailingItem, StringComparison.Ordinal))
+        {
+            return Catch<JobStepResult>.Success(JobStepResult.Failed($"'{currentState.Item}' was asked to fail"));
+        }
+
+        return Catch<JobStepResult>.Success(JobStepResult.Succeeded(currentState.Item));
     }
 
     /// <inheritdoc/>
