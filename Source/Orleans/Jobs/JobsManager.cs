@@ -89,13 +89,13 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
-    public async Task Resume(JobId jobId)
+    public async Task<bool> Resume(JobId jobId)
     {
         using var scope = logger.BeginJobsManagerScope(_key);
 
         logger.ResumingJob(jobId);
 
-        await ResumeJobAndHandleResult(jobId);
+        return await ResumeJobAndHandleResult(jobId);
     }
 
     /// <inheritdoc/>
@@ -285,16 +285,18 @@ public class JobsManager(
         }
     }
 
-    async Task ResumeJobAndHandleResult(JobId jobId)
+    async Task<bool> ResumeJobAndHandleResult(JobId jobId)
     {
-        _ = await DoActionOnJobGrain(jobId, async (_, job) =>
+        var outcome = await DoActionOnJobGrain(jobId, async (_, job) =>
         {
             var resumeResult = await job.Resume();
             await resumeResult.Match(
                 success => HandleResumeJobSuccess(jobId, success),
                 error => HandleResumeJobError(jobId, error));
-            return default(None);
+            return resumeResult.IsSuccess;
         });
+
+        return outcome.Match(taken => taken, _ => false);
     }
 
     Task HandleRemoveJobError(JobId jobId, RemoveJobError jobError)
