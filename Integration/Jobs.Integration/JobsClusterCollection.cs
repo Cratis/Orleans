@@ -11,7 +11,7 @@ namespace Cratis.Orleans.Jobs.Integration;
 /// would wipe each other's jobs mid-flight and fail for reasons that have nothing to do with the job system.
 /// </remarks>
 [CollectionDefinition(Name, DisableParallelization = true)]
-public class JobsClusterCollection
+public static class JobsClusterCollection
 {
     /// <summary>
     /// The name of the collection.
