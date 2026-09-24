@@ -5,7 +5,6 @@ using Cratis.Orleans.Hosting;
 using Cratis.Orleans.Setup;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
 namespace Cratis.Orleans.Jobs.Integration;
@@ -60,6 +59,10 @@ public class JobsClusterFixture : IDisposable
             ServiceId = Scope
         });
         builder.Services.AddSingleton<ITypes>(_ => new Cratis.Types.Types());
+
+        // The step grains resolve this from the silo, so it has to be registered before the silo starts. One
+        // instance for the whole silo; each spec resets it.
+        builder.Services.AddSingleton<for_JobsManager.given.TheJobStepProcessor>();
         builder.Services.AddCratisOrleansMongoDBJobsStorage(
             new MongoClient(ConnectionString),
             options => options.DatabaseNameResolver = (_, _) => DatabaseName);
