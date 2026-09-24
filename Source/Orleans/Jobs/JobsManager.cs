@@ -23,6 +23,7 @@ namespace Cratis.Orleans.Jobs;
 /// <param name="options">Jobs options.</param>
 /// <param name="logger">Logger for logging.</param>
 [Reentrant]
+[GrainType("cratis-orleans-jobs-manager")]
 public class JobsManager(
     IJobsStorage jobsStorage,
     IJobTypes jobTypes,
