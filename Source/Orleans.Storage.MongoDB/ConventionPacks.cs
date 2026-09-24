@@ -17,7 +17,7 @@ public class ConventionPacks : ICanProvideMongoDBConventionPacks
         "Cratis.Orleans.Jobs"
     ];
 
-    static readonly Lock _registerLock = new();
+    static readonly object _registerLock = new();
     static bool _isRegistered;
 
     /// <summary>
@@ -31,6 +31,8 @@ public class ConventionPacks : ICanProvideMongoDBConventionPacks
     /// back empty and upserts were rejected for altering an immutable <c lang="csharp">_id</c>.
     /// The provider now registers its own conventions, so the documents it writes and the filters it queries
     /// them with cannot disagree.
+    /// The lock is an <see cref="object"/> rather than a <c lang="csharp">System.Threading.Lock</c>, because
+    /// this package still targets net8.0 where that type does not exist.
     /// </remarks>
     public static void EnsureRegistered()
     {
