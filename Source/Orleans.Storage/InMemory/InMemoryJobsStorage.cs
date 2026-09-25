@@ -24,4 +24,10 @@ public class InMemoryJobsStorage(IJobTypes jobTypes) : IJobsStorage
             string.Join('#', scope, @namespace),
             static (_, jobTypes) => new JobsStorage(new InMemory.JobStorage(jobTypes), new InMemory.JobStepStorage()),
             jobTypes);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Here in-memory data itself lives in the storage instances, so forgetting them empties the store as well.
+    /// </remarks>
+    public void Reset() => _storageByScopeAndNamespace.Clear();
 }

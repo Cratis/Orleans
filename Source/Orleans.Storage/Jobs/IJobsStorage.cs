@@ -20,4 +20,16 @@ public interface IJobsStorage
     /// <param name="namespace">The namespace within the scope to get for.</param>
     /// <returns><see cref="JobsStorage"/> for the scope and namespace.</returns>
     JobsStorage GetFor(string scope, string @namespace);
+
+    /// <summary>
+    /// Forget everything resolved so far, so the next resolution builds it again.
+    /// </summary>
+    /// <remarks>
+    /// Resolution is cached, and part of resolving can be one-time work against the underlying store - the SQL
+    /// storage applies its migrations there. An application that empties or recreates that store behind the
+    /// job system leaves the cache pointing at something that no longer exists, and the one-time work never
+    /// runs again. Nothing fails at the moment of the reset; the next write is what reports a table that is not
+    /// there. Call this after emptying the store.
+    /// </remarks>
+    void Reset();
 }
