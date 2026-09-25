@@ -47,6 +47,12 @@ public class SqlJobsStorage(
         return storage;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Here the next resolution applies the migrations again, which is the point of resetting.
+    /// </remarks>
+    public void Reset() => _storageByScopeAndNamespace.Clear();
+
     /// <summary>
     /// Applies the jobs migrations so the tables exist before anything reads or writes them.
     /// </summary>

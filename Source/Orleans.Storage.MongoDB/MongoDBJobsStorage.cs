@@ -47,4 +47,10 @@ public class MongoDBJobsStorage(
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Here the collections are recreated implicitly, so this only drops the cached handles.
+    /// </remarks>
+    public void Reset() => _storageByScopeAndNamespace.Clear();
 }
