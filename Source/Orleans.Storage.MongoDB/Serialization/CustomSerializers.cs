@@ -6,6 +6,7 @@ using Cratis.DependencyInjection;
 using Cratis.Reflection;
 using Cratis.Types;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
@@ -17,8 +18,9 @@ namespace Cratis.Orleans.Storage.MongoDB.Serialization;
 /// </summary>
 /// <param name="serviceProvider">The <see cref="IServiceProvider"/>.</param>
 /// <param name="types">The <see cref="ITypes"/>.</param>
+/// <param name="options">The <see cref="CustomSerializersOptions"/> naming the assemblies to register from.</param>
 [Singleton]
-public class CustomSerializers(IServiceProvider serviceProvider, ITypes types) : ICustomSerializers
+public class CustomSerializers(IServiceProvider serviceProvider, ITypes types, IOptions<CustomSerializersOptions> options) : ICustomSerializers
 {
     static bool _isRegistered;
 
@@ -55,7 +57,16 @@ public class CustomSerializers(IServiceProvider serviceProvider, ITypes types) :
         _isRegistered = true;
     }
 
-    static bool IsEligibleForAutoRegistration(Type type) => type.Assembly.FullName!.Contains("Cratis.Orleans") &&
-                                                            !type.IsGenericType &&
-                                                            !type.HasAttribute<BsonSerializerDisableAutoRegistrationAttribute>();
+    /// <summary>
+    /// Decides whether a discovered type is registered.
+    /// </summary>
+    /// <param name="type">The <see cref="Type"/> that was discovered.</param>
+    /// <param name="assemblyNameFragments">The assembly name fragments that are registered from.</param>
+    /// <returns>True if the type is registered, false if it is skipped.</returns>
+    internal static bool IsEligibleForAutoRegistration(Type type, IEnumerable<string> assemblyNameFragments) =>
+        assemblyNameFragments.Any(fragment => type.Assembly.FullName!.Contains(fragment, StringComparison.Ordinal)) &&
+        !type.IsGenericType &&
+        !type.HasAttribute<BsonSerializerDisableAutoRegistrationAttribute>();
+
+    bool IsEligibleForAutoRegistration(Type type) => IsEligibleForAutoRegistration(type, options.Value.AssemblyNameFragments);
 }

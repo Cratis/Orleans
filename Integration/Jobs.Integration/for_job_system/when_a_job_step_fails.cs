@@ -54,7 +54,27 @@ public class when_a_job_step_fails : Specification
 
         var jobSteps = _fixture.Services.GetRequiredService<IJobsStorage>()
             .GetFor(JobsClusterFixture.Scope, string.Empty).JobSteps;
-        _jobSteps = Unwrap(await jobSteps.GetForJob(_jobId));
+
+        // The job aggregates its progress before the step grain has written the state that progress came from,
+        // so a read taken the moment the job reports completion can precede the step's own write. Wait for the
+        // state this specification is about, and fail on a deadline rather than on how fast the machine was.
+        using var stepCancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (true)
+        {
+            _jobSteps = Unwrap(await jobSteps.GetForJob(_jobId));
+            if (_jobSteps.Any(_ => _.Status == JobStepStatus.CompletedWithFailure))
+            {
+                break;
+            }
+
+            if (stepCancellationTokenSource.IsCancellationRequested)
+            {
+                throw new TimeoutException($"The failed step for job {_jobId} never reached storage.");
+            }
+
+            await Task.Delay(50).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
         _failedJobSteps = Unwrap(await jobSteps.GetForJob(_jobId, JobStepStatus.CompletedWithFailure));
     }
 
