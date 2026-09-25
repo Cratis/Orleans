@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Orleans.Jobs;
+using Cratis.Orleans.Jobs.Stages;
 
 namespace Cratis.Orleans.Storage.Jobs;
 
@@ -24,6 +25,11 @@ public class JobStepState
     /// Gets or sets the name of the job step.
     /// </summary>
     public JobStepName Name { get; set; } = JobStepName.NotSet;
+
+    /// <summary>
+    /// Gets or sets the <see cref="JobStepStage"/> the step runs in.
+    /// </summary>
+    public JobStepStage Stage { get; set; } = JobStepStage.First;
 
     /// <summary>
     /// Gets or sets the <see cref="JobStepStatus"/>.

@@ -47,4 +47,9 @@ public enum JobStepStatus
     /// The job step is being removed.
     /// </summary>
     Removing = 7,
+
+    /// <summary>
+    /// The job step never started, because a stage before it failed and the job stopped there.
+    /// </summary>
+    Unreachable = 8,
 }
