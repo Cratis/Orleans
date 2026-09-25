@@ -10,6 +10,9 @@
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
     </PropertyGroup>
     <ItemGroup>
+        <InternalsVisibleTo Include="Cratis.Orleans.Storage.MongoDB.Specs" />
+    </ItemGroup>
+    <ItemGroup>
         <PackageReference Include="MongoDB.Driver" />
         <PackageReference Include="Cratis.Arc.MongoDB" />
         <PackageReference Include="System.Reactive" />
