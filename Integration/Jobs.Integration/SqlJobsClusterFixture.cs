@@ -51,10 +51,11 @@ public class SqlJobsClusterFixture : IDisposable
         builder.Services.AddSingleton<for_JobsManager.given.TheJobStepProcessor>();
 
         var path = _databasePath;
+        var postgres = Environment.GetEnvironmentVariable("CRATIS_ORLEANS_SQL_POSTGRES");
         builder.Services.AddCratisOrleansSqlJobsStorage(options =>
-            options.OptionsResolver = (_, _) => new DbContextOptionsBuilder<JobsDbContext>()
-                .UseSqlite($"Data Source={path}")
-                .Options);
+            options.OptionsResolver = (_, _) => string.IsNullOrEmpty(postgres)
+                ? new DbContextOptionsBuilder<JobsDbContext>().UseSqlite($"Data Source={path}").Options
+                : new DbContextOptionsBuilder<JobsDbContext>().UseNpgsql(postgres).Options);
 
         _app = builder.Build();
         _app.StartAsync().GetAwaiter().GetResult();
