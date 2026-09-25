@@ -81,7 +81,10 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
 
 What a job remembers - its status, its progress, its request - persists through the jobs storage (see
 [Storage scopes](storage-scopes.md)), not through events. A completed job removes itself from storage by
-default; override `KeepAfterCompleted` on the job to keep it queryable after it is done.
+default; override `KeepAfterCompleted` on the job to keep it queryable after it is done. A job that completes with
+failures is kept by default so the failure stays readable. A job that runs on a short cadence would keep one record
+per failed run for as long as the failure lasts, so it overrides `KeepAfterCompletedWithFailures` to let those go and
+reports its failures some other way.
 
 ## Rehydration
 

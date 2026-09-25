@@ -11,6 +11,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public List<JobStepDetails> StepsToPrepare = [];
     public bool OnCompletedThrows;
     public bool ShouldBeRemovedAfterCompleted;
+    public bool ShouldBeRemovedAfterCompletedWithFailures;
     public bool ShouldBeResumable;
     public HashSet<JobStepStage> StagesContinuingOnFailure = [];
 
@@ -22,6 +23,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
         Task.FromResult<IImmutableList<JobStepDetails>>(StepsToPrepare.ToImmutableList());
 
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
+    protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
     protected override Task OnAllStepsCompleted() => OnCompletedThrows
         ? Task.FromException(new Exception())
         : Task.CompletedTask;

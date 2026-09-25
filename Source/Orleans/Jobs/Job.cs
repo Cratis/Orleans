@@ -59,6 +59,16 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     protected virtual bool KeepAfterCompleted => false;
 
     /// <summary>
+    /// Gets a value indicating whether to keep the persisted data after the job has completed with failures.
+    /// </summary>
+    /// <remarks>
+    /// Kept by default, so a failed run stays readable. A job that runs on a short cadence produces a new run every
+    /// time it fails, and keeping each one accumulates a record per run for as long as the failure lasts - such a
+    /// job reports its failures elsewhere and overrides this to let them go.
+    /// </remarks>
+    protected virtual bool KeepAfterCompletedWithFailures => true;
+
+    /// <summary>
     /// Gets a value indicating whether the job's steps are prepared and started after <see cref="Start"/> has
     /// returned rather than as part of it.
     /// </summary>
@@ -521,8 +531,13 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 StatusChanged(State.Progress.HasFailures ? JobStatus.CompletedWithFailures : JobStatus.CompletedSuccessfully);
             }
-            var shouldClearState = State.Status is not JobStatus.Failed and not JobStatus.CompletedWithFailures &&
-                                    (State.Status is JobStatus.Removing || !KeepAfterCompleted);
+            var shouldClearState = State.Status switch
+            {
+                JobStatus.Failed => false,
+                JobStatus.Removing => true,
+                JobStatus.CompletedWithFailures => !KeepAfterCompletedWithFailures,
+                _ => !KeepAfterCompleted
+            };
             if (shouldClearState)
             {
                 await ClearStateAsync();
