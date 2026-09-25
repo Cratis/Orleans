@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Monads;
+using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Storage.Jobs;
 using Cratis.Orleans.Workers;
 using Microsoft.Extensions.DependencyInjection;
@@ -179,7 +180,10 @@ public abstract class JobStep<TRequest, TResult, TState>(
     }
 
     /// <inheritdoc/>
-    public async Task<Result<PrepareJobStepError>> Prepare(object request)
+    public Task<Result<PrepareJobStepError>> Prepare(object request) => Prepare(request, JobStepStage.First);
+
+    /// <inheritdoc/>
+    public async Task<Result<PrepareJobStepError>> Prepare(object request, JobStepStage stage)
     {
         using var scope = logger.BeginJobStepScope(State);
         var prepareTask = request switch
@@ -194,6 +198,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
         }
 
         State.IsPrepared = true;
+        State.Stage = stage;
         _ = await WriteStateAsync();
         return prepareResult;
     }

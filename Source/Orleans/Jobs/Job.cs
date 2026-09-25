@@ -59,6 +59,16 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     protected virtual bool KeepAfterCompleted => false;
 
     /// <summary>
+    /// Gets a value indicating whether to keep the persisted data after the job has completed with failures.
+    /// </summary>
+    /// <remarks>
+    /// Kept by default, so a failed run stays readable. A job that runs on a short cadence produces a new run every
+    /// time it fails, and keeping each one accumulates a record per run for as long as the failure lasts - such a
+    /// job reports its failures elsewhere and overrides this to let them go.
+    /// </remarks>
+    protected virtual bool KeepAfterCompletedWithFailures => true;
+
+    /// <summary>
     /// Gets a value indicating whether the job's steps are prepared and started after <see cref="Start"/> has
     /// returned rather than as part of it.
     /// </summary>
@@ -175,6 +185,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return ResumeJobSuccess.JobIsCompleted;
             }
 
+            if (State.Status is JobStatus.Running && await ResumeStagesLeftBetween() is { } resumedStages)
+            {
+                return resumedStages;
+            }
+
             if (JobIsRunning())
             {
                 return ResumeJobSuccess.JobAlreadyRunning;
@@ -195,7 +210,9 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
             }
 
-            if (_jobStepGrains is null or { Count: 0 })
+            // Steps in a stage that never started are still tracked after the running ones stopped, so a job with
+            // stages always reloads what is left from the steps themselves.
+            if (_jobStepGrains is null or { Count: 0 } || IsStaged)
             {
                 _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
             }
@@ -212,13 +229,21 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return ResumeJobSuccess.JobIsCompleted;
             }
 
+            // A job with stages resumes at the stage it had reached - unless the stage before it failed as a barrier
+            // and a stop left that unacted on, in which case there is nothing to resume.
+            if (await PrepareStagesForResume())
+            {
+                _ = await HandleCompletionResult(await HandleCompletion());
+                return ResumeJobSuccess.JobIsCompleted;
+            }
+
             _logger.Resuming();
             State.Progress.StoppedSteps = 0;
             _ = await WriteStatusChanged(JobStatus.Running);
             await OnBeforeResumingJobSteps();
             var grainId = this.GetGrainId();
 
-            var tasks = _jobStepGrains.Select(async jobStepIdAndGrain =>
+            var tasks = StepsInCurrentStage().Select(async jobStepIdAndGrain =>
             {
                 var result = await jobStepIdAndGrain.Value.Start(grainId);
                 return (jobStepIdAndGrain.Key, result, jobStepIdAndGrain.Value);
@@ -422,10 +447,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         // Then we want to resubscribe all non-completed job steps
         if (State.Progress is { IsCompleted: false, IsStopped: false })
         {
+            // Steps in a stage that has not started are not running, so there is nothing of theirs to stop.
             _jobStepGrains ??= await GetIdAndGrainReferenceForNonCompletedJobSteps();
-            foreach (var (jobStepId, _) in _jobStepGrains)
+            foreach (var (_, jobStepGrain) in StepsInCurrentStage())
             {
-                await SubscribeJobStep(_jobStepGrains[jobStepId].AsReference<IJobObserver>());
+                await SubscribeJobStep(jobStepGrain.AsReference<IJobObserver>());
             }
         }
 
@@ -503,10 +529,15 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
             else if (State.Status is not JobStatus.Removing)
             {
-                StatusChanged(State.Progress.FailedSteps > 0 ? JobStatus.CompletedWithFailures : JobStatus.CompletedSuccessfully);
+                StatusChanged(State.Progress.HasFailures ? JobStatus.CompletedWithFailures : JobStatus.CompletedSuccessfully);
             }
-            var shouldClearState = State.Status is not JobStatus.Failed and not JobStatus.CompletedWithFailures &&
-                                    (State.Status is JobStatus.Removing || !KeepAfterCompleted);
+            var shouldClearState = State.Status switch
+            {
+                JobStatus.Failed => false,
+                JobStatus.Removing => true,
+                JobStatus.CompletedWithFailures => !KeepAfterCompletedWithFailures,
+                _ => !KeepAfterCompleted
+            };
             if (shouldClearState)
             {
                 await ClearStateAsync();

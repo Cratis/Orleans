@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Monads;
+using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Workers;
 using Orleans.Concurrency;
 
@@ -13,11 +14,23 @@ namespace Cratis.Orleans.Jobs;
 public interface IJobStep : IGrainWithGuidCompoundKey
 {
     /// <summary>
-    /// Prepare the job step.
+    /// Prepare the job step to run in <see cref="JobStepStage.First"/>.
     /// </summary>
     /// <param name="request">Request to prepare it with.</param>
     /// <returns>Awaitable task.</returns>
     Task<Result<PrepareJobStepError>> Prepare(object request);
+
+    /// <summary>
+    /// Prepare the job step to run in a given stage.
+    /// </summary>
+    /// <param name="request">Request to prepare it with.</param>
+    /// <param name="stage">The <see cref="JobStepStage"/> the step runs in.</param>
+    /// <returns>Awaitable task.</returns>
+    /// <remarks>
+    /// The stage is persisted with the step, so a job resuming after a restart knows which stage each of its steps
+    /// belongs to without planning its steps again.
+    /// </remarks>
+    Task<Result<PrepareJobStepError>> Prepare(object request, JobStepStage stage);
 
     /// <summary>
     /// Start the job step.

@@ -37,7 +37,9 @@ public class IntegrationJobStep(
     /// <inheritdoc/>
     protected override async Task<Catch<JobStepResult>> PerformStep(IntegrationJobStepState currentState, CancellationToken cancellationToken)
     {
+        var started = DateTimeOffset.UtcNow;
         await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        IntegrationJobStepTimeline.Record(new(currentState.Item, started, DateTimeOffset.UtcNow));
         if (string.Equals(currentState.Item, FailingItem, StringComparison.Ordinal))
         {
             return Catch<JobStepResult>.Success(JobStepResult.Failed($"'{currentState.Item}' was asked to fail"));
