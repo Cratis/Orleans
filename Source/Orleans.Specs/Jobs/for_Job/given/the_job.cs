@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using Cratis.Monads;
+using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.Jobs;
 using Microsoft.Extensions.Logging;
@@ -27,13 +28,18 @@ public class the_job : Specification
 
     protected int StoredJobStepsWith(JobStepStatus status) => _storedJobStepStates.Count(state => state.Status == status);
 
-    protected Mock<ISomeJobStep> AddJobStep(JobStepId jobStepId)
+    protected Mock<ISomeJobStep> AddJobStep(JobStepId jobStepId, JobStepStage? stage = null)
     {
         var key = new JobStepKey(_jobId, _jobKey.Scope, _jobKey.Namespace);
-        _job.StepsToPrepare.Add(new(typeof(ISomeJobStep), jobStepId, key, new SomeRequest(), typeof(object)));
+        _job.StepsToPrepare.Add(new(typeof(ISomeJobStep), jobStepId, key, new SomeRequest(), typeof(object)) { Stage = stage ?? JobStepStage.First });
 
         var probe = _silo.AddProbe<ISomeJobStep>(jobStepId, keyExtension: key);
-        probe.Setup(_ => _.Prepare(It.IsAny<object>())).ReturnsAsync(Result<PrepareJobStepError>.Success());
+        probe.Setup(_ => _.Prepare(It.IsAny<object>(), It.IsAny<JobStepStage>()))
+            .Returns((object _, JobStepStage preparedStage) =>
+            {
+                StoredJobStep(jobStepId).Stage = preparedStage;
+                return Task.FromResult(Result<PrepareJobStepError>.Success());
+            });
         probe.Setup(_ => _.ReportStatusChange(It.IsAny<JobStepStatus>()))
             .Returns((JobStepStatus status) =>
             {
@@ -43,16 +49,18 @@ public class the_job : Specification
         return probe;
     }
 
-    void RecordJobStepStatus(JobStepId jobStepId, JobStepStatus status)
+    protected JobStepState StoredJobStep(JobStepId jobStepId)
     {
         var state = _storedJobStepStates.Find(_ => _.Id.JobStepId == jobStepId);
         if (state is null)
         {
-            state = new JobStepState { Id = new(_jobId, jobStepId) };
+            state = new JobStepState { Id = new(_jobId, jobStepId), Type = typeof(ISomeJobStep) };
             _storedJobStepStates.Add(state);
         }
-        state.Status = status;
+        return state;
     }
+
+    void RecordJobStepStatus(JobStepId jobStepId, JobStepStatus status) => StoredJobStep(jobStepId).Status = status;
 
     async Task Establish()
     {

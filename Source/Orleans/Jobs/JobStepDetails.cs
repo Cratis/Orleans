@@ -1,6 +1,8 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Orleans.Jobs.Stages;
+
 namespace Cratis.Orleans.Jobs;
 
 /// <summary>
@@ -16,4 +18,15 @@ public record JobStepDetails(
     JobStepId Id,
     JobStepKey Key,
     object Request,
-    Type ResultType);
+    Type ResultType)
+{
+    /// <summary>
+    /// Gets the <see cref="JobStepStage"/> the step runs in.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see cref="JobStepStage.First"/>. A job whose steps all share one stage runs them all in parallel,
+    /// which is the default and the recommended shape; give steps different stages only when a later step must not
+    /// start until an earlier one has run.
+    /// </remarks>
+    public JobStepStage Stage { get; init; } = JobStepStage.First;
+}

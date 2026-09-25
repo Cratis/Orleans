@@ -4,6 +4,7 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using Cratis.Monads;
+using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Storage.Jobs;
 using Cratis.Reflection;
 
@@ -19,6 +20,7 @@ public abstract partial class Job<TRequest, TJobState>
         using var scope = _logger.BeginJobScope(JobId, JobKey);
         _logger.StepSuccessfullyCompleted(stepId);
         State.Progress.SuccessfulSteps++;
+        CountStepOutcomeInStage(stepId, succeeded: true);
         return await PerformStepEventHandling(stepId, jobStepResult);
     }
 
@@ -37,6 +39,7 @@ public abstract partial class Job<TRequest, TJobState>
         using var scope = _logger.BeginJobScope(JobId, JobKey);
         _logger.StepFailed(stepId);
         State.Progress.FailedSteps++;
+        CountStepOutcomeInStage(stepId, succeeded: false);
         return await PerformStepEventHandling(stepId, jobStepResult);
     }
 
@@ -106,6 +109,7 @@ public abstract partial class Job<TRequest, TJobState>
         try
         {
             await OnStepCompletedOrStopped(stepId, result);
+            await AdvanceStagesAfter(stepId);
             var handleCompletionResult = await HandleCompletion();
             return await HandleCompletionResult(handleCompletionResult);
         }
@@ -163,6 +167,7 @@ public abstract partial class Job<TRequest, TJobState>
         var getJobSteps = await Storage.JobSteps.GetForJob(JobId, statuses);
         getJobSteps.RethrowError();
         var jobSteps = getJobSteps.AsT0;
+        TrackStagesOf(jobSteps);
         return jobSteps.ToDictionary(jobStep => jobStep.Id.JobStepId, GetJobStepGrain);
     }
     Task<Dictionary<JobStepId, IJobStep>> GetIdAndGrainReferenceForNonCompletedJobSteps() =>
@@ -190,7 +195,10 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.TotalSteps = steps.Count;
         State.Progress.SuccessfulSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedSuccessfully);
         State.Progress.FailedSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedWithFailure or JobStepStatus.Failed);
+        State.Progress.UnreachableSteps = steps.Count(_ => _.Status is JobStepStatus.Unreachable);
         State.Progress.StoppedSteps = 0;
+        State.Progress.Stages = JobStages.Reconcile(steps);
+        TrackStagesOf(steps);
     }
 
     IJobStep GetJobStepGrain(JobStepDetails details) => (GrainFactory.GetGrain(details.Type, details.Id, keyExtension: details.Key) as IJobStep)!;
@@ -202,6 +210,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             var grainId = this.GetGrainId();
             var steps = await PrepareSteps(request);
+            PlanStages(steps);
             _ = await SetTotalSteps(steps.Count);
             if (steps.Count == 0)
             {
@@ -239,7 +248,10 @@ public abstract partial class Job<TRequest, TJobState>
         }
         _ = await WriteStatusChanged(JobStatus.StartingSteps);
 
-        var startJobStepsResult = await StartAndSubscribeToAllJobSteps(grainId);
+        // For a job with stages only the first one starts here - the rest follow as each stage completes.
+        await OnBeforeStartingJobSteps();
+        var startJobStepsResult = await StartFirstStage(grainId);
+
         if (startJobStepsResult.TryGetError(out var startJobStepsError))
         {
             if (startJobStepsError != StartJobError.AllJobStepsFailedStarting)
@@ -248,6 +260,10 @@ public abstract partial class Job<TRequest, TJobState>
             }
 
             _ = await HandleCompletionResult(await HandleCompletion());
+            if (State.Status is JobStatus.StartingSteps)
+            {
+                _ = await WriteStatusChanged(JobStatus.Running);
+            }
             return startJobStepsError;
         }
 
@@ -261,7 +277,8 @@ public abstract partial class Job<TRequest, TJobState>
         {
             var prepareResults = await Task.WhenAll(chunk.Select(async idAndGrainAndRequest =>
             {
-                var prepareResult = await idAndGrainAndRequest.Value.Grain.Prepare(idAndGrainAndRequest.Value.Request);
+                var stage = _jobStepStages.GetValueOrDefault(idAndGrainAndRequest.Key, JobStepStage.First);
+                var prepareResult = await idAndGrainAndRequest.Value.Grain.Prepare(idAndGrainAndRequest.Value.Request, stage);
                 return (idAndGrainAndRequest.Key, prepareResult);
             }));
 
@@ -284,12 +301,10 @@ public abstract partial class Job<TRequest, TJobState>
         return true;
     }
 
-    async Task<Result<StartJobError>> StartAndSubscribeToAllJobSteps(GrainId grainId)
+    async Task<Result<StartJobError>> StartAndSubscribeToJobSteps(GrainId grainId, Dictionary<JobStepId, IJobStep> jobStepGrains)
     {
-        var jobStepGrains = _jobStepGrains!;
         var totalJobSteps = jobStepGrains.Count;
         var failedJobStepIds = new List<JobStepId>();
-        await OnBeforeStartingJobSteps();
         foreach (var chunk in jobStepGrains.Chunk(MaxConcurrentJobStepStartups))
         {
             var startResults = await Task.WhenAll(chunk.Select(idAndGrain => TryStartJobStep(idAndGrain.Key, idAndGrain.Value, grainId)));
@@ -322,6 +337,10 @@ public abstract partial class Job<TRequest, TJobState>
         }
         await RecordJobStepsAsFailed(failedJobStepIds, jobStepGrains);
         State.Progress.FailedSteps += failedJobStepIds.Count;
+        foreach (var failedJobStepId in failedJobStepIds)
+        {
+            CountStepOutcomeInStage(failedJobStepId, succeeded: false);
+        }
         return failedJobStepIds.Count == totalJobSteps
             ? StartJobError.AllJobStepsFailedStarting
             : StartJobError.FailedStartingSomeJobSteps;
@@ -331,23 +350,23 @@ public abstract partial class Job<TRequest, TJobState>
     {
         foreach (var chunk in jobStepIds.Chunk(MaxConcurrentJobStepStartups))
         {
-            await Task.WhenAll(chunk.Select(id => RecordJobStepAsFailed(id, jobStepGrains[id])));
+            await Task.WhenAll(chunk.Select(id => RecordJobStepStatus(id, jobStepGrains[id], JobStepStatus.Failed)));
         }
     }
 
-    async Task RecordJobStepAsFailed(JobStepId id, IJobStep jobStep)
+    async Task RecordJobStepStatus(JobStepId id, IJobStep jobStep, JobStepStatus status)
     {
         try
         {
-            var reportResult = await jobStep.ReportStatusChange(JobStepStatus.Failed);
+            var reportResult = await jobStep.ReportStatusChange(status);
             if (reportResult.TryGetError(out var error))
             {
-                _logger.FailedRecordingJobStepAsFailed(id, error);
+                _logger.FailedRecordingJobStepStatus(id, status, error);
             }
         }
         catch (Exception ex)
         {
-            _logger.FailedRecordingJobStepAsFailed(ex, id);
+            _logger.FailedRecordingJobStepStatus(ex, id, status);
         }
     }
 
