@@ -18,6 +18,11 @@ public class SqlJobsStorageOptions
     /// <remarks>
     /// The resolver decides both which database the scope and namespace map to and which EF Core provider is
     /// used - SQL Server, PostgreSQL or SQLite - giving the host full flexibility in how jobs data is laid out.
+    /// <para>
+    /// Settable rather than init-only because <c lang="csharp">AddCratisOrleansSqlJobsStorage</c> configures it
+    /// through an options callback, which runs against an already-constructed instance. Init-only left the one
+    /// option the storage needs unreachable from the setup method that exists to supply it.
+    /// </para>
     /// </remarks>
-    public required Func<string, string, DbContextOptions<JobsDbContext>> OptionsResolver { get; init; }
+    public required Func<string, string, DbContextOptions<JobsDbContext>> OptionsResolver { get; set; }
 }

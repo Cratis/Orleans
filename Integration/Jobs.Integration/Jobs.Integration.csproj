@@ -4,6 +4,10 @@
         <RootNamespace>Cratis.Orleans.Jobs.Integration</RootNamespace>
         <IsTestProject>true</IsTestProject>
         <TargetFramework>net10.0</TargetFramework>
+        <!-- The packaging build multi-targets every project in the solution. This one now references the SQL
+             storage, which is net10.0 only because EF Core 10 is, so without this the restore fails for net8.0
+             and net9.0 and nothing publishes. -->
+        <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net10.0</TargetFrameworks>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="coverlet.collector" />
@@ -14,10 +18,12 @@
         <PackageReference Include="xunit.runner.visualstudio" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="Microsoft.Orleans.TestingHost" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="../../Source/Orleans/Orleans.csproj" />
         <ProjectReference Include="../../Source/Orleans.Storage/Orleans.Storage.csproj" />
         <ProjectReference Include="../../Source/Orleans.Storage.MongoDB/Orleans.Storage.MongoDB.csproj" />
+        <ProjectReference Include="../../Source/Orleans.Storage.Sql/Orleans.Storage.Sql.csproj" />
     </ItemGroup>
 </Project>
