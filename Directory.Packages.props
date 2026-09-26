@@ -31,13 +31,13 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <!-- EF Core (SQL storage) -->
-    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.23.0" />
+    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.24.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- Cratis -->
-    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.23.0" />
+    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.24.0" />
     <PackageVersion Include="Cratis.Fundamentals" Version="7.19.6" />
     <PackageVersion Include="Cratis.Metrics.Roslyn" Version="7.19.6" />
     <PackageVersion Include="Cratis.Specifications" Version="4.0.0" />
