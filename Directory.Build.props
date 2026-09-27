@@ -30,6 +30,22 @@
         <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net8.0;net9.0;net10.0</TargetFrameworks>
     </PropertyGroup>
 
+    <!--
+        TEMPORARY - remove once Cratis.Chronicle publishes the explicit registration and fluent reactor APIs
+        (Cratis/Chronicle#4297) that Cratis.Orleans.Chronicle builds on.
+
+        Until then those packages only exist in a local, unpublished feed. Restore picks it up from the
+        CRATIS_ASSURANCE_FEED environment variable, or from an .assurance-feed folder beside the checkout - one level
+        up for a plain clone, two levels up for a worktree under <name>-worktrees/. Nothing is added when neither
+        exists, so no machine-specific path is ever committed.
+    -->
+    <PropertyGroup>
+        <_CratisAssuranceFeed Condition="'$(CRATIS_ASSURANCE_FEED)' != '' AND Exists('$(CRATIS_ASSURANCE_FEED)')">$(CRATIS_ASSURANCE_FEED)</_CratisAssuranceFeed>
+        <_CratisAssuranceFeed Condition="'$(_CratisAssuranceFeed)' == '' AND Exists('$(MSBuildThisFileDirectory)../.assurance-feed')">$(MSBuildThisFileDirectory)../.assurance-feed</_CratisAssuranceFeed>
+        <_CratisAssuranceFeed Condition="'$(_CratisAssuranceFeed)' == '' AND Exists('$(MSBuildThisFileDirectory)../../.assurance-feed')">$(MSBuildThisFileDirectory)../../.assurance-feed</_CratisAssuranceFeed>
+        <RestoreAdditionalProjectSources Condition="'$(_CratisAssuranceFeed)' != ''">$(RestoreAdditionalProjectSources);$(_CratisAssuranceFeed)</RestoreAdditionalProjectSources>
+    </PropertyGroup>
+
     <ItemGroup>
         <PackageReference Include="StyleCop.Analyzers" PrivateAssets="All" />
         <PackageReference Include="Roslynator.Analyzers" PrivateAssets="All" />
