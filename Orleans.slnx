@@ -12,6 +12,7 @@
         <Project Path="Source/Orleans.Chronicle.Specs/Orleans.Chronicle.Specs.csproj" />
     </Folder>
     <Folder Name="/Integration/">
+        <Project Path="Integration/Chronicle.Integration/Chronicle.Integration.csproj" />
         <Project Path="Integration/Jobs.Integration/Jobs.Integration.csproj" />
     </Folder>
 </Solution>
