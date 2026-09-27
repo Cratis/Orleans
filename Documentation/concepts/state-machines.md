@@ -214,4 +214,5 @@ state.SetStateMachine(stateMachine);
 - **Transitions that run long work.** `OnEnter` and `OnLeave` run on the grain's turn. Start long work from a
   state and let it report back, for example through a [worker](workers.md).
 - **A state that is not owned by the grain.** When another system is the source of truth, derive the current state
-  from it with `ResolveActivationState()` and supplied storage, rather than persisting a competing copy.
+  from it with `ResolveActivationState()` and supplied storage, rather than persisting a competing copy. When that
+  system is Chronicle, use an [event-sourced state machine](event-sourced-state-machines.md).

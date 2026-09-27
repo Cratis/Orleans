@@ -8,3 +8,5 @@
   href: serializers-and-keys.md
 - name: State machines
   href: state-machines.md
+- name: Event-sourced state machines
+  href: event-sourced-state-machines.md
