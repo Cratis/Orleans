@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Chronicle</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Chronicle</RootNamespace>
+        <Description>Chronicle integration for Cratis Orleans - event-sourced state machines whose model is a Chronicle read model and whose transitions are driven by Chronicle events</Description>
+        <PackageTags>orleans;chronicle;event-sourcing;state-machines;grains;cratis</PackageTags>
+        <RepositoryUrl>https://github.com/Cratis/Orleans</RepositoryUrl>
+        <ProjectUrl>https://github.com/Cratis/Orleans</ProjectUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <NoWarn>$(NoWarn);ORLEANS0010</NoWarn>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Orleans.Sdk" />
+        <PackageReference Include="Cratis.Chronicle" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+        <!-- Cratis.Chronicle's net9.0 assembly is compiled against System.Collections.Immutable 10 but its package does
+             not declare the dependency for net9.0, where the framework only has 9. -->
+        <PackageReference Include="System.Collections.Immutable" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../Orleans/Orleans.csproj" />
+    </ItemGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="Cratis.Orleans.Chronicle.Specs" />
+        <InternalsVisibleTo Include="Cratis.Orleans.Chronicle.Integration" />
+        <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    </ItemGroup>
+</Project>
