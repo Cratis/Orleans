@@ -46,6 +46,37 @@ public static class JobObservation
     }
 
     /// <summary>
+    /// Waits until every job step of a job satisfies a predicate.
+    /// </summary>
+    /// <param name="storage">The storage to read from.</param>
+    /// <param name="jobId">The job whose steps to read.</param>
+    /// <param name="predicate">The state being waited for.</param>
+    /// <param name="timeout">How long to wait before giving up. Defaults to <see cref="Timeout"/>.</param>
+    /// <returns>The job step states that satisfied the predicate.</returns>
+    /// <exception cref="TimeoutException">Thrown when the job steps did not reach the state in time.</exception>
+    /// <remarks>
+    /// A step reports its outcome to its job before it persists its own status, so a scenario waiting on the job's
+    /// progress can still read the step as running. Wait on the step's own persisted state instead.
+    /// </remarks>
+    public static async Task<IImmutableList<JobStepState>> WaitTillJobStepsMeetPredicate(this IJobStepStorage storage, JobId jobId, Func<JobStepState, bool> predicate, TimeSpan? timeout = null)
+    {
+        IImmutableList<JobStepState> last = ImmutableList<JobStepState>.Empty;
+        using var cancellationTokenSource = new CancellationTokenSource(timeout ?? Timeout);
+        while (!cancellationTokenSource.IsCancellationRequested)
+        {
+            last = await storage.GetJobSteps(jobId);
+            if (last.Count > 0 && last.All(predicate))
+            {
+                return last;
+            }
+
+            await Task.Delay(50).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        throw new TimeoutException($"The job steps for '{jobId}' never reached the expected state. Last seen: {(last.Count == 0 ? "no steps" : string.Join(", ", last.Select(step => step.Status.ToString())))}.");
+    }
+
+    /// <summary>
     /// Waits until the job reports its progress as completed.
     /// </summary>
     /// <param name="storage">The storage to read from.</param>

@@ -19,6 +19,7 @@ three.
 - [Getting started](getting-started/index.md) — run your first job, end to end
 - [The job system](concepts/jobs.md) — what a job is and how it behaves
 - [Storage scopes](concepts/storage-scopes.md) — how job state finds its database
+- [State machines](concepts/state-machines.md) — model a grain's lifecycle as explicit states
 - [Host the silo](how-to/host-the-silo.md)
 - [Configure storage](how-to/configure-storage.md)
 - [Options reference](reference/options.md)
@@ -27,7 +28,7 @@ three.
 
 | Package | Holds |
 | --- | --- |
-| `Cratis.Orleans` | The job engine, Workers, typed grain keys, Orleans serializers, silo hosting |
+| `Cratis.Orleans` | The job engine, Workers, state machines, typed grain keys, Orleans serializers, silo hosting |
 | `Cratis.Orleans.Storage` | The jobs storage API and the scope resolver |
 | `Cratis.Orleans.Storage.MongoDB` | MongoDB storage provider |
 | `Cratis.Orleans.Storage.Sql` | SQL storage provider (EF Core: SQL Server, PostgreSQL, SQLite) |

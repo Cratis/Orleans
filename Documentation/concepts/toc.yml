@@ -6,3 +6,5 @@
   href: workers.md
 - name: Serializers and grain keys
   href: serializers-and-keys.md
+- name: State machines
+  href: state-machines.md
