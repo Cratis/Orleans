@@ -24,7 +24,7 @@ public class and_job_step_fails_and_keep_state_is_false(context context) : Given
             await JobStepProcessor.WaitForStepsToBeCompleted();
             JobId = StartJobResult.AsT0;
             Job = await JobStorage.WaitTillJobProgressCompleted(JobId);
-            JobSteps = await JobStepStorage.GetJobSteps(JobId);
+            JobSteps = await JobStepStorage.WaitTillJobStepsMeetPredicate(JobId, step => step.Status == JobStepStatus.CompletedWithFailure);
         }
     }
 
