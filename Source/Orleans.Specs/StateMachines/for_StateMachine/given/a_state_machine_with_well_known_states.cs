@@ -9,6 +9,7 @@ public abstract class a_state_machine_with_well_known_states : a_state_machine
     protected StateThatDoesNotSupportTransitioningFrom state_that_does_not_support_transitioning;
     protected StateThatTransitionsOnEnter state_that_transitions_on_enter;
     protected StateThatTransitionsOnLeave state_that_transitions_on_leave;
+    protected StateThatTransitionsByTypeOnEnter state_that_transitions_by_type_on_enter;
     protected List<(Type Type, bool IsEnter, StateMachineStateForTesting State)> on_calls;
 
     void AddCall(Type type, bool isEnter, StateMachineStateForTesting state) => on_calls.Add((type, isEnter, state));
@@ -21,6 +22,7 @@ public abstract class a_state_machine_with_well_known_states : a_state_machine
         state_that_does_not_support_transitioning = new();
         state_that_transitions_on_enter = new();
         state_that_transitions_on_leave = new();
+        state_that_transitions_by_type_on_enter = new();
 
         state_that_supports_transitioning.OnEnterCalled = _ => AddCall(typeof(StateThatSupportsTransitioningFrom), true, _);
         state_that_supports_transitioning.OnLeaveCalled = _ => AddCall(typeof(StateThatSupportsTransitioningFrom), false, _);
@@ -30,6 +32,8 @@ public abstract class a_state_machine_with_well_known_states : a_state_machine
         state_that_transitions_on_enter.OnLeaveCalled = _ => AddCall(typeof(StateThatTransitionsOnEnter), false, _);
         state_that_transitions_on_leave.OnEnterCalled = _ => AddCall(typeof(StateThatTransitionsOnLeave), true, _);
         state_that_transitions_on_leave.OnLeaveCalled = _ => AddCall(typeof(StateThatTransitionsOnLeave), false, _);
+        state_that_transitions_by_type_on_enter.OnEnterCalled = _ => AddCall(typeof(StateThatTransitionsByTypeOnEnter), true, _);
+        state_that_transitions_by_type_on_enter.OnLeaveCalled = _ => AddCall(typeof(StateThatTransitionsByTypeOnEnter), false, _);
         state_that_supports_transitioning.StateToReturnOnEnter = new() { Something = "Support - Enter State" };
         state_that_supports_transitioning.StateToReturnOnLeave = new() { Something = "Support - Leave State" };
         state_that_does_not_support_transitioning.StateToReturnOnEnter = new() { Something = "NoSupport - Enter State" };
@@ -40,7 +44,8 @@ public abstract class a_state_machine_with_well_known_states : a_state_machine
             state_that_supports_transitioning,
             state_that_does_not_support_transitioning,
             state_that_transitions_on_enter,
-            state_that_transitions_on_leave
+            state_that_transitions_on_leave,
+            state_that_transitions_by_type_on_enter
         ];
     }
 }

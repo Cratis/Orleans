@@ -19,6 +19,10 @@ public class StateMachineForTesting(IEnumerable<IState<StateMachineStateForTesti
 
     public override IImmutableList<IState<StateMachineStateForTesting>> CreateStates() => _states;
 
+    public Task<bool> CanTransitionToStateOfType(Type stateType) => CanTransitionTo(stateType);
+
+    public Task TransitionToStateOfType(Type stateType) => TransitionTo(stateType);
+
     protected override Task OnBeforeEnteringState(IState<StateMachineStateForTesting> state)
     {
         if (state is NoOpState<StateMachineStateForTesting>)
