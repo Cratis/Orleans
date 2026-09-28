@@ -51,8 +51,9 @@ on:
       - ".github/workflows/publish.yml"
       # Central package management decides what the published packages depend on, so a version bump here
       # changes what a consumer restores even though no file under Source changed.
-      - "Directory.Packages.props"
+      - "Directory.Packages*.props"
       - "Directory.Build.props"
+      - "Directory.Build.targets"
 
 permissions:
   issues: write
@@ -110,6 +111,9 @@ jobs:
           find ./Source -name "*.csproj" ! -name "*.Specs.csproj" -print0 | while IFS= read -r -d '' project; do
             dotnet pack "$project" --no-build --configuration Release -o ${{ env.NUGET_OUTPUT }} -p:IsPackaging=true -p:Version=${{ needs.release.outputs.version }} -p:PackageVersion=${{ needs.release.outputs.version }} -p:SourceRevisionId=${{ github.sha }}
           done
+
+      - name: Verify packed Orleans dependencies for supported frameworks
+        run: bash .github/package-smoke/verify.sh
 
       - name: Setup NuGet (trusted publishing; no API key)
         uses: NuGet/login@v1

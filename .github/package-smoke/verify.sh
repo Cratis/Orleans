@@ -4,8 +4,9 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
-work="$repo/.ai-work/orleans-package-smoke"
-version="1.10.2-packagecheck.$(date +%s).$$"
+work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/orleans-package-smoke.XXXXXX")"
+trap 'rm -rf -- "$work"' EXIT
+version="0.0.0-packagecheck.$(date +%s).$$"
 mkdir -p "$work/packages" "$work/consumer"
 cp "$repo/.github/package-smoke/Consumer.csproj" "$repo/.github/package-smoke/Directory.Build.props" "$work/consumer/"
 
@@ -16,6 +17,7 @@ done
 for tfm in net8.0 net9.0 net10.0; do
     echo "Checking packed Cratis.Orleans consumer for $tfm"
     dotnet restore "$work/consumer/Consumer.csproj" \
+        --packages "$work/nuget" \
         --source "$work/packages" --source https://api.nuget.org/v3/index.json \
         -p:TargetFramework="$tfm" -p:CratisOrleansVersion="$version" --force
     python3 - "$work/consumer/obj/project.assets.json" "$tfm" <<'PY'

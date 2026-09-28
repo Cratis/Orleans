@@ -25,6 +25,9 @@ on:
     paths:
       - "Source/**"
       - "Integration/**"
+      - "Directory.Packages*.props"
+      - "Directory.Build.props"
+      - "Directory.Build.targets"
       - ".github/package-smoke/**"
       - ".github/workflows/dotnet-build.yml"
 
