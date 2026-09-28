@@ -8,8 +8,11 @@
         <Project Path="Source/Orleans.Storage.Specs/Orleans.Storage.Specs.csproj" />
         <Project Path="Source/Orleans.Storage.MongoDB.Specs/Orleans.Storage.MongoDB.Specs.csproj" />
         <Project Path="Source/Orleans.Storage.Sql.Specs/Orleans.Storage.Sql.Specs.csproj" />
+        <Project Path="Source/Orleans.Chronicle/Orleans.Chronicle.csproj" />
+        <Project Path="Source/Orleans.Chronicle.Specs/Orleans.Chronicle.Specs.csproj" />
     </Folder>
     <Folder Name="/Integration/">
+        <Project Path="Integration/Chronicle.Integration/Chronicle.Integration.csproj" />
         <Project Path="Integration/Jobs.Integration/Jobs.Integration.csproj" />
     </Folder>
 </Solution>

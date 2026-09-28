@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Chronicle.Integration</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Chronicle.Integration</RootNamespace>
+        <IsTestProject>true</IsTestProject>
+        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net10.0</TargetFrameworks>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" />
+        <PackageReference Include="Cratis.Specifications.XUnit" />
+        <PackageReference Include="NSubstitute" />
+        <PackageReference Include="xunit" />
+        <PackageReference Include="xunit.runner.visualstudio" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="Microsoft.Orleans.Sdk" />
+        <PackageReference Include="Microsoft.Orleans.TestingHost" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="../../Source/Orleans.Chronicle/Orleans.Chronicle.csproj" />
+    </ItemGroup>
+</Project>
