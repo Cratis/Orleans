@@ -42,7 +42,8 @@
     <PackageVersion Include="Cratis.Chronicle.XUnit.Integration" Version="19.14.0" />
     <!-- Cratis.Chronicle's net9.0 assembly is compiled against System.Collections.Immutable 10 without declaring it for net9.0. -->
     <PackageVersion Include="System.Collections.Immutable" Version="10.0.0" />
-    <PackageVersion Include="Cratis.Fundamentals" Version="7.19.6" />
+    <!-- Chronicle.Testing 19.14.0 depends directly on 7.19.4; a higher floor here downgrades its consumers (NU1605). -->
+    <PackageVersion Include="Cratis.Fundamentals" Version="7.19.4" />
     <PackageVersion Include="Cratis.Metrics.Roslyn" Version="7.19.6" />
     <PackageVersion Include="Cratis.Specifications" Version="4.0.0" />
     <PackageVersion Include="Cratis.Specifications.XUnit" Version="4.1.1" />
