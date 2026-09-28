@@ -13,12 +13,19 @@ namespace Cratis.Orleans.Serialization.for_ExpandoObjectSerializer.given;
 public class a_serializer_for_expando_objects : Specification
 {
     protected Serializer _serializer;
+    protected Serializer _previousSerializer;
 
     void Establish()
     {
         var services = new ServiceCollection();
         services.AddCratisOrleansSerializers();
         _serializer = services.BuildServiceProvider().GetRequiredService<Serializer>();
+
+        // A silo that has not been upgraded yet: the codec as it was, the first one registered for the type.
+        var previous = new ServiceCollection();
+        previous.AddSerializer(builder => builder.Services.AddCompleteSerializer<PreviousExpandoObjectSerializer>());
+        previous.AddCratisOrleansSerializers();
+        _previousSerializer = previous.BuildServiceProvider().GetRequiredService<Serializer>();
     }
 
     /// <summary>
@@ -28,6 +35,22 @@ public class a_serializer_for_expando_objects : Specification
     /// <param name="value">The value to send.</param>
     /// <returns>The value as the receiving silo sees it.</returns>
     protected T AcrossSilos<T>(T value) => _serializer.Deserialize<T>(_serializer.SerializeToArray(value)!)!;
+
+    /// <summary>
+    /// Sends a value from a silo that has not been upgraded to one that has.
+    /// </summary>
+    /// <typeparam name="T">The type of the value.</typeparam>
+    /// <param name="value">The value to send.</param>
+    /// <returns>The value as the upgraded silo sees it.</returns>
+    protected T FromAPreviousSilo<T>(T value) => _serializer.Deserialize<T>(_previousSerializer.SerializeToArray(value)!)!;
+
+    /// <summary>
+    /// Sends a value from an upgraded silo to one that has not been upgraded.
+    /// </summary>
+    /// <typeparam name="T">The type of the value.</typeparam>
+    /// <param name="value">The value to send.</param>
+    /// <returns>The value as the silo that has not been upgraded sees it.</returns>
+    protected T ToAPreviousSilo<T>(T value) => _previousSerializer.Deserialize<T>(_serializer.SerializeToArray(value)!)!;
 
     /// <summary>
     /// Creates an <see cref="ExpandoObject"/> from name and value pairs.
