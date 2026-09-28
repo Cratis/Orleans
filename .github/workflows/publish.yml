@@ -51,17 +51,40 @@ on:
       - ".github/workflows/publish.yml"
       # Central package management decides what the published packages depend on, so a version bump here
       # changes what a consumer restores even though no file under Source changed.
-      - "Directory.Packages.props"
+      - "Directory.Packages*.props"
       - "Directory.Build.props"
+      - "Directory.Build.targets"
 
 permissions:
   issues: write
   contents: write
 
 jobs:
+  # Checked before the release job, so a packed Cratis.Orleans whose consumers resolve mixed Orleans versions
+  # (Reminders vs Server) or fail to restore or build for net8.0, net9.0 or net10.0 fails the run before a version
+  # is tagged, rather than after, when only the package push would be stopped.
+  verify-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .Net
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            ${{ env.DOTNET8_VERSION }}
+            ${{ env.DOTNET9_VERSION }}
+            ${{ env.DOTNET_VERSION }}
+
+      - name: Verify packed Orleans dependencies for supported frameworks
+        run: bash .github/package-smoke/verify.sh
+
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: [verify-packages]
     outputs:
       version: ${{ steps.release.outputs.version }}
       publish: ${{ steps.release.outputs.should-publish }}

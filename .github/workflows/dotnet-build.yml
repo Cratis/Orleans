@@ -25,6 +25,10 @@ on:
     paths:
       - "Source/**"
       - "Integration/**"
+      - "Directory.Packages*.props"
+      - "Directory.Build.props"
+      - "Directory.Build.targets"
+      - ".github/package-smoke/**"
       - ".github/workflows/dotnet-build.yml"
 
 jobs:
@@ -49,3 +53,6 @@ jobs:
 
       - name: Build & run tests for root
         run: dotnet test --configuration Debug
+
+      - name: Verify packed Orleans dependencies for supported frameworks
+        run: bash .github/package-smoke/verify.sh

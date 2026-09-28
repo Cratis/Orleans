@@ -76,7 +76,7 @@ It is consolidated here from [Chronicle](https://github.com/Cratis/Chronicle) (t
 | **One Call** | `AddCratisOrleans` brings the whole job system: grains, storage providers, serializers, type discovery, throttle and options |
 | **Clustering** | Localhost for development, durable MongoDB membership for running more than one instance |
 | **Reminder Safety** | The 9.x MongoDB provider's reminder table hangs the 10.x reminder service — the hosting keeps reminders on the in-memory service and the knowledge lives here once |
-| **Alignment Guard** | Every consumer fails its Release build the moment `Microsoft.Orleans.Reminders` drifts from `Microsoft.Orleans.Server` — shipped as `buildTransitive` |
+| **Alignment Guard** | `Cratis.Orleans` depends directly on Orleans 10 Reminders for .NET 8, 9 and 10, so the MongoDB provider's Orleans 9 dependency cannot split a consumer's graph. The `buildTransitive` target also fails Release builds if Reminders drifts from Server. |
 
 ### 🔧 Building Blocks
 
