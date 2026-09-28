@@ -60,8 +60,9 @@ permissions:
   contents: write
 
 jobs:
-  # Checked before the release job, so an incompatible dependency floor fails the run before a version is
-  # tagged and released rather than after, when only the package push would be stopped.
+  # Checked before the release job, so a packed Cratis.Orleans whose consumers resolve mixed Orleans versions
+  # (Reminders vs Server) or fail to restore or build for net8.0, net9.0 or net10.0 fails the run before a version
+  # is tagged, rather than after, when only the package push would be stopped.
   verify-packages:
     runs-on: ubuntu-latest
     timeout-minutes: 30
