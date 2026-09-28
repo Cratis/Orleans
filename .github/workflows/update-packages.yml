@@ -8,5 +8,9 @@ on:
 jobs:
   update:
     uses: Cratis/Workflows/.github/workflows/update-packages.yml@main
+    with:
+      # Direct publication pushes to main without a pull request, so the packed-consumer check has to run here:
+      # it stops an update that raises a dependency floor consumers cannot restore (see Cratis/Orleans#32).
+      post-update-command: bash .github/package-smoke/verify.sh
     secrets:
       PAT_WORKFLOWS: ${{ secrets.PAT_WORKFLOWS }}

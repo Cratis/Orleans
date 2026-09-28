@@ -60,9 +60,30 @@ permissions:
   contents: write
 
 jobs:
+  # Checked before the release job, so an incompatible dependency floor fails the run before a version is
+  # tagged and released rather than after, when only the package push would be stopped.
+  verify-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .Net
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            ${{ env.DOTNET8_VERSION }}
+            ${{ env.DOTNET9_VERSION }}
+            ${{ env.DOTNET_VERSION }}
+
+      - name: Verify packed Orleans dependencies for supported frameworks
+        run: bash .github/package-smoke/verify.sh
+
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    needs: [verify-packages]
     outputs:
       version: ${{ steps.release.outputs.version }}
       publish: ${{ steps.release.outputs.should-publish }}
@@ -111,9 +132,6 @@ jobs:
           find ./Source -name "*.csproj" ! -name "*.Specs.csproj" -print0 | while IFS= read -r -d '' project; do
             dotnet pack "$project" --no-build --configuration Release -o ${{ env.NUGET_OUTPUT }} -p:IsPackaging=true -p:Version=${{ needs.release.outputs.version }} -p:PackageVersion=${{ needs.release.outputs.version }} -p:SourceRevisionId=${{ github.sha }}
           done
-
-      - name: Verify packed Orleans dependencies for supported frameworks
-        run: bash .github/package-smoke/verify.sh
 
       - name: Setup NuGet (trusted publishing; no API key)
         uses: NuGet/login@v1
