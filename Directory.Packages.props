@@ -31,14 +31,14 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- EF Core (SQL storage) -->
-    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.31.0" />
+    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.33.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <!-- Cratis -->
-    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.31.0" />
-    <PackageVersion Include="Cratis.Chronicle" Version="19.14.2" />
+    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.33.1" />
+    <PackageVersion Include="Cratis.Chronicle" Version="19.21.1" />
     <PackageVersion Include="Cratis.Chronicle.XUnit.Integration" Version="19.14.0" />
     <!-- Cratis.Chronicle's net9.0 assembly is compiled against System.Collections.Immutable 10 without declaring it for net9.0. -->
     <PackageVersion Include="System.Collections.Immutable" Version="10.0.0" />
