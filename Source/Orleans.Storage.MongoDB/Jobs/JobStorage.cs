@@ -7,6 +7,10 @@ using System.Reactive.Subjects;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using OneOf.Types;
 
@@ -27,6 +31,16 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     const string StatusElementName = "status";
     const string TypeElementName = "type";
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
+    readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStorage"/> class with logging.
+    /// </summary>
+    /// <param name="database">The database for persistence.</param>
+    /// <param name="jobTypes">The registered job types.</param>
+    /// <param name="logger">The logger.</param>
+    public JobStorage(IMongoDatabase database, IJobTypes jobTypes, ILogger<JobStorage> logger)
+        : this(database, jobTypes) => _logger = logger;
 
     /// <summary>
     /// Gets the indexes maintained on the jobs collection.
@@ -166,9 +180,10 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
             }
 
             await EnsureIndexes().ConfigureAwait(false);
-            using var cursor = await GetTypedCollection<TJobState>().FindAsync(TypeAndStatusFilter<TJobState>(jobType, statuses)).ConfigureAwait(false);
-            var jobs = await cursor.ToListAsync().ConfigureAwait(false);
-            return jobs.ToImmutableList();
+            using var cursor = await GetTypedCollection<TJobState>().FindAsync(
+                TypeAndStatusFilter<TJobState>(jobType, statuses),
+                new FindOptions<TJobState, BsonDocument>()).ConfigureAwait(false);
+            return (await DeserializeJobs<TJobState>(cursor).ConfigureAwait(false)).ToImmutableList();
         }
         catch (Exception ex)
         {
@@ -224,7 +239,30 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
 
         // The materialized Status field is kept in lockstep with the last status change (see the Job grain), so
         // filtering it directly is behavior-identical to the previous $arrayElemAt on statusChanges — and indexable.
-        using var cursor = await Collection.FindAsync(StatusFilter<JobState>(statuses)).ConfigureAwait(false);
-        return await cursor.ToListAsync().ConfigureAwait(false);
+        using var cursor = await Collection.FindAsync(
+            StatusFilter<JobState>(statuses),
+            new FindOptions<JobState, BsonDocument>()).ConfigureAwait(false);
+        return await DeserializeJobs<JobState>(cursor).ConfigureAwait(false);
+    }
+
+    async Task<List<TJobState>> DeserializeJobs<TJobState>(IAsyncCursor<BsonDocument> cursor)
+    {
+        var jobs = new List<TJobState>();
+        while (await cursor.MoveNextAsync().ConfigureAwait(false))
+        {
+            foreach (var document in cursor.Current)
+            {
+                var jobType = new JobType(document[TypeElementName].AsString);
+                if (!jobTypes.GetClrTypeFor(jobType).IsSuccess)
+                {
+                    _logger.SkippingUnknownJobType(document["_id"].ToString()!, jobType);
+                    continue;
+                }
+
+                // Deserialize only registered types, so an obsolete request cannot abort the entire cursor batch.
+                jobs.Add(BsonSerializer.Deserialize<TJobState>(document));
+            }
+        }
+        return jobs;
     }
 }
