@@ -59,6 +59,31 @@ public class JobsOptions
     public TimeSpan StepCheckpointFlushInterval { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// Gets the maximum number of stored jobs resumed concurrently when the jobs manager rehydrates.
+    /// Defaults to 8.
+    /// </summary>
+    /// <remarks>
+    /// Every resumed job reads its state, activates, queries its steps and starts them, so an unbounded burst
+    /// can exhaust the storage connection pool. Jobs are resumed oldest first. Values below 1 are treated as 1.
+    /// </remarks>
+    public int MaxConcurrentRehydration { get; init; } = 8;
+
+    /// <summary>
+    /// Gets the maximum number of dead jobs deleted concurrently by the cleanup process.
+    /// Defaults to 4.
+    /// </summary>
+    /// <remarks>
+    /// Values below 1 are treated as 1.
+    /// </remarks>
+    public int MaxConcurrentCleanup { get; init; } = 4;
+
+    /// <summary>
+    /// Gets the maximum number of job steps a single job starts concurrently when it starts or resumes.
+    /// Defaults to 16. Values below 1 are treated as 1.
+    /// </summary>
+    public int MaxConcurrentStepStarts { get; init; } = 16;
+
+    /// <summary>
     /// Gets the effective maximum parallel steps to use.
     /// </summary>
     /// <returns>The maximum parallel steps value.</returns>

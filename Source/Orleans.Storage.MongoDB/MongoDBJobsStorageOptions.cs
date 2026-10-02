@@ -17,4 +17,16 @@ public class MongoDBJobsStorageOptions
     /// storage has always used, so existing job data stays where it is.
     /// </remarks>
     public Func<string, string, string>? DatabaseNameResolver { get; set; }
+
+    /// <summary>
+    /// Gets or sets how many times a storage operation is retried after failing with a transient error
+    /// (wait queue full, timeout, connection failure). Defaults to 5; zero disables retrying.
+    /// </summary>
+    public int TransientRetryCount { get; set; } = 5;
+
+    /// <summary>
+    /// Gets or sets the delay before the first retry of a transient failure. It doubles for every
+    /// following retry and is randomized to avoid synchronized retries. Defaults to 200 milliseconds.
+    /// </summary>
+    public TimeSpan TransientRetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
 }

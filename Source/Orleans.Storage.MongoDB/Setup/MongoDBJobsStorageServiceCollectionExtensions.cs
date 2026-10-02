@@ -19,7 +19,10 @@ public static class MongoDBJobsStorageServiceCollectionExtensions
     /// Add MongoDB jobs storage for the Orleans job system.
     /// </summary>
     /// <param name="services"><see cref="IServiceCollection"/> to add to.</param>
-    /// <param name="client">The <see cref="IMongoClient"/> to use.</param>
+    /// <param name="client">
+    /// The <see cref="IMongoClient"/> to use. The caller owns it and its pool settings (MaxConnectionPoolSize,
+    /// MaxConnecting); share one client for the whole process.
+    /// </param>
     /// <param name="configure">Optional callback for configuring <see cref="MongoDBJobsStorageOptions"/>.</param>
     /// <returns><see cref="IServiceCollection"/> for continuation.</returns>
     public static IServiceCollection AddCratisOrleansMongoDBJobsStorage(

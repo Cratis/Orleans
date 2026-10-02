@@ -243,12 +243,16 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             await OnBeforeResumingJobSteps();
             var grainId = this.GetGrainId();
 
-            var tasks = StepsInCurrentStage().Select(async jobStepIdAndGrain =>
+            var startJobStepResults = new List<(JobStepId Key, Result<StartJobStepError> Result, IJobStep Grain)>();
+            foreach (var chunk in StepsInCurrentStage().Chunk(MaxConcurrentJobStepStartups))
             {
-                var result = await jobStepIdAndGrain.Value.Start(grainId);
-                return (jobStepIdAndGrain.Key, result, jobStepIdAndGrain.Value);
-            });
-            var startJobStepResults = await Task.WhenAll(tasks);
+                var tasks = chunk.Select(async jobStepIdAndGrain =>
+                {
+                    var result = await jobStepIdAndGrain.Value.Start(grainId);
+                    return (jobStepIdAndGrain.Key, result, jobStepIdAndGrain.Value);
+                });
+                startJobStepResults.AddRange(await Task.WhenAll(tasks));
+            }
             var failedSteps = new List<JobStepId>();
 
             foreach (var (id, result, grain) in startJobStepResults)

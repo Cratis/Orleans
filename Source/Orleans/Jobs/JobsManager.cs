@@ -111,11 +111,11 @@ public class JobsManager(
         await getRunningJobs.Match(RehydrateJobs, HandleUnknownFailure);
         return;
 
-        Task RehydrateJobs(IEnumerable<JobState> runningJobs)
-        {
-            var tasks = runningJobs.Select(state => ResumeJobAndHandleResult(state.Id));
-            return Task.WhenAll(tasks);
-        }
+        Task RehydrateJobs(IEnumerable<JobState> runningJobs) =>
+            RunBounded(
+                runningJobs.OrderBy(state => state.Created).ToList(),
+                options.Value.MaxConcurrentRehydration,
+                ResumeJobAndHandleResult);
     }
 
     /// <inheritdoc/>
@@ -235,13 +235,36 @@ public class JobsManager(
         if (deadJobs.Count > 0)
         {
             logger.FoundDeadJobs(deadJobs.Count);
-            var deleteTasks = deadJobs.ConvertAll(job => Delete(job.Id));
-            await Task.WhenAll(deleteTasks);
+            await RunBounded(deadJobs, options.Value.MaxConcurrentCleanup, job => Delete(job.Id));
         }
         else
         {
             logger.NoDeadJobsFound();
         }
+    }
+
+    async Task RunBounded(IReadOnlyCollection<JobState> jobs, int maxConcurrency, Func<JobState, Task> action)
+    {
+        // Run on the grain's own scheduler (not the thread pool) so grain calls keep their context. One failing
+        // job must never stop the others, so every action is isolated.
+        using var gate = new SemaphoreSlim(Math.Max(1, maxConcurrency));
+        var tasks = jobs.Select(async state =>
+        {
+            await gate.WaitAsync();
+            try
+            {
+                await action(state);
+            }
+            catch (Exception ex)
+            {
+                logger.UnknownError(ex);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        await Task.WhenAll(tasks);
     }
 
     Result<IJob, IJobTypes.GetClrTypeForError> GetJobGrain(JobState jobState) => jobTypes.GetClrTypeFor(jobState.Type)
@@ -270,6 +293,19 @@ public class JobsManager(
             {
                 return Result<TResult, None>.Failed(default);
             }
+            return await DoActionOnJobGrain(jobState, doAction);
+        }
+        catch (Exception ex)
+        {
+            logger.UnknownError(ex);
+            return Result<TResult, None>.Failed(default);
+        }
+    }
+
+    async Task<Result<TResult, None>> DoActionOnJobGrain<TResult>(JobState jobState, Func<JobState, IJob, Task<TResult>> doAction)
+    {
+        try
+        {
             var getJobGrain = GetJobGrain(jobState);
             if (getJobGrain.TryPickT1(out var getJobGrainError, out var job))
             {
@@ -287,17 +323,24 @@ public class JobsManager(
 
     async Task<bool> ResumeJobAndHandleResult(JobId jobId)
     {
-        var outcome = await DoActionOnJobGrain(jobId, async (_, job) =>
-        {
-            var resumeResult = await job.Resume();
-            await resumeResult.Match(
-                success => HandleResumeJobSuccess(jobId, success),
-                error => HandleResumeJobError(jobId, error));
-            return resumeResult.IsSuccess;
-        });
-
+        var outcome = await DoActionOnJobGrain(jobId, ResumeAction(jobId));
         return outcome.Match(taken => taken, _ => false);
     }
+
+    async Task<bool> ResumeJobAndHandleResult(JobState state)
+    {
+        var outcome = await DoActionOnJobGrain(state, ResumeAction(state.Id));
+        return outcome.Match(taken => taken, _ => false);
+    }
+
+    Func<JobState, IJob, Task<bool>> ResumeAction(JobId jobId) => async (_, job) =>
+    {
+        var resumeResult = await job.Resume();
+        await resumeResult.Match(
+            success => HandleResumeJobSuccess(jobId, success),
+            error => HandleResumeJobError(jobId, error));
+        return resumeResult.IsSuccess;
+    };
 
     Task HandleRemoveJobError(JobId jobId, RemoveJobError jobError)
     {

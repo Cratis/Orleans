@@ -44,7 +44,7 @@ public class the_manager : Specification
 
         _jobStepStorage.RemoveAllForJob(Arg.Any<JobId>()).Returns(Task.FromResult(Catch.Success()));
 
-        var options = Options.Create(new JobsOptions());
+        var options = Options.Create(CreateOptions());
         _silo.AddService(_jobsStorage);
         _silo.AddService(NullLogger<JobsManager>.Instance);
         _silo.AddService(_jobTypes);
@@ -54,6 +54,8 @@ public class the_manager : Specification
         _managerKey = new("event-store", "namespace");
         _manager = await _silo.CreateGrainAsync<JobsManager>(0, _managerKey);
     }
+
+    protected virtual JobsOptions CreateOptions() => new();
 
     protected Mock<TJob> AddJob<TJob>(JobId id)
         where TJob : class, IJob
