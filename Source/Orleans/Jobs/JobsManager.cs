@@ -2,13 +2,18 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
+using System.Reactive.Linq;
+using System.Runtime.CompilerServices;
 using Cratis.Monads;
 using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.Jobs;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OneOf.Types;
 using Orleans.Concurrency;
+using Orleans.Runtime.Diagnostics;
 
 namespace Cratis.Orleans.Jobs;
 
@@ -30,6 +35,12 @@ public class JobsManager(
     IOptions<JobsOptions> options,
     ILogger<JobsManager> logger) : Grain, IJobsManager
 {
+    static readonly JobStatus[] _interruptedStatuses = [JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps];
+    CancellationTokenSource _rehydrationCancellation = null!;
+    IDisposable? _deactivationSubscription;
+    bool _deactivationNotificationsUnavailable;
+    Task? _rehydrationPreparation;
+    Task? _rehydration;
     JobsStorage? _jobsStorageForScope;
     IJobStorage? _jobStorage;
     IJobStepStorage? _jobStepStorage;
@@ -41,6 +52,8 @@ public class JobsManager(
     {
         this.GetPrimaryKeyLong(out var key);
         _key = key!;
+        var applicationLifetime = ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
+        _rehydrationCancellation = CancellationTokenSource.CreateLinkedTokenSource(applicationLifetime.ApplicationStopping);
 
         _jobsStorageForScope = jobsStorage.GetFor(_key.Scope, _key.Namespace);
         _jobStorage = _jobsStorageForScope.Jobs;
@@ -59,10 +72,13 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
-    public override Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
     {
         _cleanupTimer?.Dispose();
-        return Task.CompletedTask;
+        _deactivationSubscription?.Dispose();
+        _deactivationSubscription = null;
+        await _rehydrationCancellation.CancelAsync();
+        _rehydrationCancellation.Dispose();
     }
 
     /// <inheritdoc/>
@@ -99,23 +115,19 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
-    public async Task Rehydrate()
+    public Task Rehydrate()
     {
-        using var scope = logger.BeginJobsManagerScope(_key);
-
-        logger.Rehydrating();
-
-        await CleanupDeadJobs();
-
-        var getRunningJobs = await _jobStorage!.GetJobs(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps);
-        await getRunningJobs.Match(RehydrateJobs, HandleUnknownFailure);
-        return;
-
-        Task RehydrateJobs(IEnumerable<JobState> runningJobs) =>
-            RunBounded(
-                runningJobs.OrderBy(state => state.Created).ToList(),
-                options.Value.MaxConcurrentRehydration,
-                ResumeJobAndHandleResult);
+        // This grain is reentrant: share both preparation and the background drain, but never make callers
+        // wait for a backlog which can take longer than their grain response timeout.
+        if (_rehydrationPreparation?.IsCompleted == false)
+        {
+            return _rehydrationPreparation;
+        }
+        if (_rehydration?.IsCompleted == false)
+        {
+            return Task.CompletedTask;
+        }
+        return _rehydrationPreparation = PrepareRehydration();
     }
 
     /// <inheritdoc/>
@@ -210,6 +222,93 @@ public class JobsManager(
             });
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static IDisposable ObserveDeactivation(IGrainContext grainContext, CancellationTokenSource cancellation)
+    {
+        // Orleans 10.3.1: GrainLifecycleEvents is a diagnostic API which may change between minor versions.
+        // Keep its type references behind a non-inlined boundary so even JIT/type-loading failures are caught
+        // by SubscribeToDeactivation. Subscribe only during a drain so the global observer cannot pin idle grains.
+        // Unlike OnDeactivateAsync, this fires before active requests finish, possibly off-scheduler.
+        // Only touch the thread-safe CTS here. Keep-alive prevents idle collection, not initiated deactivation
+        // (including migration), so all deactivation reasons must cancel dispatch.
+        return GrainLifecycleEvents.AllEvents
+            .OfType<GrainLifecycleEvents.Deactivating>()
+            .Where(notification => ReferenceEquals(notification.GrainContext, grainContext))
+            .Subscribe(_ => cancellation.Cancel());
+    }
+
+    void SubscribeToDeactivation()
+    {
+        if (_deactivationNotificationsUnavailable)
+        {
+            return;
+        }
+        try
+        {
+            _deactivationSubscription = ObserveDeactivation(GrainContext, _rehydrationCancellation);
+        }
+        catch (Exception exception)
+        {
+            // Log once per activation and retain OnDeactivateAsync/host shutdown cancellation as a fallback.
+            _deactivationNotificationsUnavailable = true;
+            logger.EarlyDeactivationNotificationsUnavailable(exception);
+        }
+    }
+
+    async Task PrepareRehydration()
+    {
+        using var scope = logger.BeginJobsManagerScope(_key);
+        var cancellationToken = _rehydrationCancellation.Token;
+        cancellationToken.ThrowIfCancellationRequested();
+        logger.Rehydrating();
+
+        await CleanupDeadJobs().WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var getRunningJobs = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
+        await getRunningJobs.Match(
+            runningJobs =>
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    DelayDeactivation(Timeout.InfiniteTimeSpan);
+                    SubscribeToDeactivation();
+                    _rehydration = ResumeJobsInBackground(runningJobs, cancellationToken);
+                }
+                return Task.CompletedTask;
+            },
+            HandleUnknownFailure);
+    }
+
+    async Task ResumeJobsInBackground(IEnumerable<JobState> runningJobs, CancellationToken cancellationToken)
+    {
+        // Yield onto the grain scheduler, not the thread pool, so even a synchronously completing backlog
+        // cannot keep Rehydrate's caller waiting. This work owns its failures and activation lifetime.
+        await Task.Yield();
+        using var scope = logger.BeginJobsManagerScope(_key);
+        try
+        {
+            await RunBounded(
+                runningJobs.OrderBy(state => state.Created).ToList(),
+                options.Value.MaxConcurrentRehydration,
+                state => ResumeJobAndHandleResult(state, cancellationToken),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Undispatched jobs stay in storage for an explicit Rehydrate call or the next host startup.
+        }
+        catch (Exception exception)
+        {
+            logger.UnknownError(exception);
+        }
+        finally
+        {
+            _deactivationSubscription?.Dispose();
+            _deactivationSubscription = null;
+            DelayDeactivation(TimeSpan.Zero);
+        }
+    }
+
     async Task CleanupDeadJobsInternal(IEnumerable<JobState> preparingJobs, DateTimeOffset cutoffTime)
     {
         var deadJobs = new List<JobState>();
@@ -243,17 +342,29 @@ public class JobsManager(
         }
     }
 
-    async Task RunBounded(IReadOnlyCollection<JobState> jobs, int maxConcurrency, Func<JobState, Task> action)
+    async Task RunBounded(IReadOnlyCollection<JobState> jobs, int maxConcurrency, Func<JobState, Task> action, CancellationToken cancellationToken = default)
     {
         // Run on the grain's own scheduler (not the thread pool) so grain calls keep their context. One failing
         // job must never stop the others, so every action is isolated.
         using var gate = new SemaphoreSlim(Math.Max(1, maxConcurrency));
         var tasks = jobs.Select(async state =>
         {
-            await gate.WaitAsync();
             try
             {
-                await action(state);
+                await gate.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await action(state).WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Stop dispatch without waiting for an already in-flight grain call or storage read.
             }
             catch (Exception ex)
             {
@@ -327,9 +438,19 @@ public class JobsManager(
         return outcome.Match(taken => taken, _ => false);
     }
 
-    async Task<bool> ResumeJobAndHandleResult(JobState state)
+    async Task<bool> ResumeJobAndHandleResult(JobState state, CancellationToken cancellationToken)
     {
-        var outcome = await DoActionOnJobGrain(state, ResumeAction(state.Id));
+        // Discovery is a snapshot. Storage has no status-only read, so reload once at dispatch to preserve
+        // a Stop issued while this job was queued. Reuse that fresh state for grain resolution, without a
+        // second read. Explicit Resume remains unrestricted.
+        var outcome = await DoActionOnJobGrain(state.Id, async (currentState, job) =>
+        {
+            if (cancellationToken.IsCancellationRequested || !_interruptedStatuses.Contains(currentState.Status))
+            {
+                return false;
+            }
+            return await ResumeAction(state.Id)(currentState, job);
+        });
         return outcome.Match(taken => taken, _ => false);
     }
 

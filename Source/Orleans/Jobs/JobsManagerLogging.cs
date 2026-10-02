@@ -14,6 +14,9 @@ public static partial class JobsManagerLogMessages
     [LoggerMessage(LogLevel.Debug, "Rehydrating jobs system")]
     public static partial void Rehydrating(this ILogger<JobsManager> logger);
 
+    [LoggerMessage(LogLevel.Warning, "Early grain deactivation notifications are unavailable; job rehydration will cancel on host shutdown or OnDeactivateAsync")]
+    public static partial void EarlyDeactivationNotificationsUnavailable(this ILogger<JobsManager> logger, Exception exception);
+
     [LoggerMessage(LogLevel.Debug, "Starting job {JobId}")]
     public static partial void StartingJob(this ILogger<JobsManager> logger, JobId jobId);
 

@@ -5,6 +5,7 @@ using System.Collections.Immutable;
 using Cratis.Monads;
 using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.Jobs;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -24,6 +25,10 @@ public class the_manager : Specification
     protected IJobStorage _jobStorage;
     protected IJobStepStorage _jobStepStorage;
     protected IJobTypes _jobTypes;
+    protected IOptions<JobsOptions> _options;
+    protected CancellationTokenSource _applicationStopping;
+    protected TaskCompletionSource _rehydrationFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    protected bool _deactivated;
 
     protected List<JobState> _storedJobs;
 
@@ -44,18 +49,37 @@ public class the_manager : Specification
 
         _jobStepStorage.RemoveAllForJob(Arg.Any<JobId>()).Returns(Task.FromResult(Catch.Success()));
 
-        var options = Options.Create(CreateOptions());
+        _options = Substitute.For<IOptions<JobsOptions>>();
+        _options.Value.Returns(CreateOptions());
+        _applicationStopping = new();
+        var applicationLifetime = Substitute.For<IHostApplicationLifetime>();
+        applicationLifetime.ApplicationStopping.Returns(_applicationStopping.Token);
+        _silo.AddService(applicationLifetime);
+        _silo.GrainRuntime.Mock
+            .Setup(runtime => runtime.DelayDeactivation(It.IsAny<IGrainContext>(), TimeSpan.Zero))
+            .Callback(() => _rehydrationFinished.TrySetResult());
         _silo.AddService(_jobsStorage);
         _silo.AddService(NullLogger<JobsManager>.Instance);
         _silo.AddService(_jobTypes);
-        _silo.AddService(options);
+        _silo.AddService(_options);
         var loggerFactory = Substitute.For<ILoggerFactory>();
         _silo.AddService(loggerFactory);
         _managerKey = new("event-store", "namespace");
         _manager = await _silo.CreateGrainAsync<JobsManager>(0, _managerKey);
     }
 
+    async Task Destroy()
+    {
+        if (!_deactivated)
+        {
+            await _manager.OnDeactivateAsync(new DeactivationReason(DeactivationReasonCode.None, string.Empty), CancellationToken.None);
+        }
+        _applicationStopping.Dispose();
+    }
+
     protected virtual JobsOptions CreateOptions() => new();
+
+    protected Task WaitForRehydration() => _rehydrationFinished.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
     protected Mock<TJob> AddJob<TJob>(JobId id)
         where TJob : class, IJob
@@ -64,6 +88,7 @@ public class the_manager : Specification
         {
             Type = typeof(TJob),
             Id = id,
+            Status = JobStatus.Running,
             Created = DateTimeOffset.UtcNow
         };
         _storedJobs.Add(state);
