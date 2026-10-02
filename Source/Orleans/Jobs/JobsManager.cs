@@ -245,21 +245,26 @@ public class JobsManager(
 
     async Task RunBounded(IReadOnlyCollection<JobState> jobs, int maxConcurrency, Func<JobState, Task> action)
     {
-        // One failing job must never stop the others, so every action is isolated.
-        await Parallel.ForEachAsync(
-            jobs,
-            new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxConcurrency) },
-            async (state, _) =>
+        // Run on the grain's own scheduler (not the thread pool) so grain calls keep their context. One failing
+        // job must never stop the others, so every action is isolated.
+        using var gate = new SemaphoreSlim(Math.Max(1, maxConcurrency));
+        var tasks = jobs.Select(async state =>
+        {
+            await gate.WaitAsync();
+            try
             {
-                try
-                {
-                    await action(state);
-                }
-                catch (Exception ex)
-                {
-                    logger.UnknownError(ex);
-                }
-            });
+                await action(state);
+            }
+            catch (Exception ex)
+            {
+                logger.UnknownError(ex);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        await Task.WhenAll(tasks);
     }
 
     Result<IJob, IJobTypes.GetClrTypeForError> GetJobGrain(JobState jobState) => jobTypes.GetClrTypeFor(jobState.Type)
