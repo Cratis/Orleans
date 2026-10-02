@@ -62,9 +62,14 @@ public class MongoDBJobsStorage(
         var databaseName = options.Value.DatabaseNameResolver?.Invoke(scope, @namespace)
             ?? DatabaseNames.ForJobs(scope, @namespace);
         var database = client.GetDatabase(databaseName);
+        var retry = new TransientRetry(
+            options.Value.TransientRetryCount,
+            options.Value.TransientRetryBaseDelay,
+            TimeProvider.System,
+            _loggerFactory.CreateLogger<TransientRetry>());
         storage = new JobsStorage(
-            new Jobs.JobStorage(database, jobTypes, _loggerFactory.CreateLogger<Jobs.JobStorage>()),
-            new Jobs.JobStepStorage(database));
+            new Jobs.JobStorage(database, jobTypes, _loggerFactory.CreateLogger<Jobs.JobStorage>(), retry),
+            new Jobs.JobStepStorage(database, retry));
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
     }

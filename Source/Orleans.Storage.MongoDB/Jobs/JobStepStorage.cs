@@ -22,9 +22,19 @@ namespace Cratis.Orleans.Storage.MongoDB.Jobs;
 /// Initializes a new instance of the <see cref="JobStorage"/> class.
 /// </remarks>
 /// <param name="database"><see cref="IMongoDatabase"/> for persistence.</param>
-public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
+/// <param name="retry">The <see cref="TransientRetry"/> applied to storage operations.</param>
+public class JobStepStorage(IMongoDatabase database, TransientRetry retry) : IJobStepStorage
 {
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStepStorage"/> class with the default transient error retry.
+    /// </summary>
+    /// <param name="database"><see cref="IMongoDatabase"/> for persistence.</param>
+    public JobStepStorage(IMongoDatabase database)
+        : this(database, TransientRetry.Default)
+    {
+    }
 
     IMongoCollection<JobStepState> Collection => database.GetCollection<JobStepState>(WellKnownCollectionNames.JobSteps);
 
@@ -92,18 +102,21 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
                 filter &= Builders<JobStepState>.Filter.In(nameof(JobStepState.Status).ToCamelCase(), statuses);
             }
 
-            if (ShouldBeStoredInFailedCollection(statuses) || includeAll)
+            return await retry.Execute($"getting job steps of job {jobId}", async () =>
             {
-                using var failedCursor = await FailedCollection.FindAsync(filter).ConfigureAwait(false);
-                failedJobSteps = await failedCursor.ToListAsync();
-            }
-            if (!statuses.All(ShouldBeStoredInFailedCollection) || includeAll)
-            {
-                using var cursor = await Collection.FindAsync(filter).ConfigureAwait(false);
-                jobSteps = await cursor.ToListAsync();
-            }
+                if (ShouldBeStoredInFailedCollection(statuses) || includeAll)
+                {
+                    using var failedCursor = await FailedCollection.FindAsync(filter).ConfigureAwait(false);
+                    failedJobSteps = await failedCursor.ToListAsync();
+                }
+                if (!statuses.All(ShouldBeStoredInFailedCollection) || includeAll)
+                {
+                    using var cursor = await Collection.FindAsync(filter).ConfigureAwait(false);
+                    jobSteps = await cursor.ToListAsync();
+                }
 
-            return jobSteps.Concat(failedJobSteps).ToImmutableList();
+                return jobSteps.Concat(failedJobSteps).ToImmutableList();
+            }).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -126,15 +139,18 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
                 filter &= Builders<JobStepState>.Filter.In(nameof(JobStepState.Status).ToCamelCase(), statuses);
             }
 
-            if (ShouldBeStoredInFailedCollection(statuses) || includeAll)
+            return await retry.Execute($"counting job steps of job {jobId}", async () =>
             {
-                count = await FailedCollection.CountDocumentsAsync(filter).ConfigureAwait(false);
-            }
-            if (!statuses.All(ShouldBeStoredInFailedCollection) || includeAll)
-            {
-                count += await Collection.CountDocumentsAsync(filter).ConfigureAwait(false);
-            }
-            return (int)count;
+                if (ShouldBeStoredInFailedCollection(statuses) || includeAll)
+                {
+                    count = await FailedCollection.CountDocumentsAsync(filter).ConfigureAwait(false);
+                }
+                if (!statuses.All(ShouldBeStoredInFailedCollection) || includeAll)
+                {
+                    count += await Collection.CountDocumentsAsync(filter).ConfigureAwait(false);
+                }
+                return (int)count;
+            }).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -166,8 +182,11 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
             }
 
             var filter = GetIdFilter<TJobStepState>(jobId, jobStepId);
-            using var cursor = await GetTypedCollection<TJobStepState>().FindAsync(filter).ConfigureAwait(false);
-            var state = await cursor.FirstOrDefaultAsync();
+            var state = await retry.Execute($"reading job step {jobStepId} of job {jobId}", async () =>
+            {
+                using var cursor = await GetTypedCollection<TJobStepState>().FindAsync(filter).ConfigureAwait(false);
+                return await cursor.FirstOrDefaultAsync();
+            }).ConfigureAwait(false);
             return state is not null ? state : JobStepError.NotFound;
         }
         catch (Exception ex)
@@ -193,7 +212,9 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
             var collection = ShouldBeStoredInFailedCollection(actualState.Status)
                 ? GetTypedFailedCollection<TJobStepState>()
                 : GetTypedCollection<TJobStepState>();
-            await collection.ReplaceOneAsync(GetIdFilter<TJobStepState>(jobId, jobStepId), state, new ReplaceOptions { IsUpsert = true }).ConfigureAwait(false);
+            await retry.Execute(
+                $"saving job step {jobStepId} of job {jobId}",
+                () => collection.ReplaceOneAsync(GetIdFilter<TJobStepState>(jobId, jobStepId), state, new ReplaceOptions { IsUpsert = true })).ConfigureAwait(false);
             return default(None);
         }
         catch (Exception ex)

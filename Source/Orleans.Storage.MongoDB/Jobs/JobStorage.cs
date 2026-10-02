@@ -34,6 +34,7 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     const string TypeElementName = "type";
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
+    readonly TransientRetry _retry = TransientRetry.Default;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JobStorage"/> class with logging.
@@ -43,6 +44,16 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     /// <param name="logger">The logger.</param>
     public JobStorage(IMongoDatabase database, IJobTypes jobTypes, ILogger<JobStorage> logger)
         : this(database, jobTypes) => _logger = logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStorage"/> class with logging and transient error retry.
+    /// </summary>
+    /// <param name="database">The database for persistence.</param>
+    /// <param name="jobTypes">The registered job types.</param>
+    /// <param name="logger">The logger.</param>
+    /// <param name="retry">The <see cref="TransientRetry"/> applied to storage operations.</param>
+    public JobStorage(IMongoDatabase database, IJobTypes jobTypes, ILogger<JobStorage> logger, TransientRetry retry)
+        : this(database, jobTypes, logger) => _retry = retry;
 
     /// <summary>
     /// Gets the indexes maintained on the jobs collection.
@@ -72,8 +83,11 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            using var cursor = await Collection.FindAsync(GetIdFilter<JobState>(jobId)).ConfigureAwait(false);
-            var job = await cursor.SingleOrDefaultAsync();
+            var job = await _retry.Execute($"getting job {jobId}", async () =>
+            {
+                using var cursor = await Collection.FindAsync(GetIdFilter<JobState>(jobId)).ConfigureAwait(false);
+                return await cursor.SingleOrDefaultAsync();
+            }).ConfigureAwait(false);
 #pragma warning disable RCS1084 // This is more clear
             return job is not null ? job : JobError.NotFound;
 #pragma warning restore RCS1084
@@ -89,7 +103,7 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            var jobs = await GetJobsRaw(statuses).ConfigureAwait(false);
+            var jobs = await _retry.Execute("getting jobs", () => GetJobsRaw(statuses)).ConfigureAwait(false);
             return jobs.ToImmutableList();
         }
         catch (Exception ex)
@@ -133,7 +147,7 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            await Collection.DeleteOneAsync(GetIdFilter<JobState>(jobId)).ConfigureAwait(false);
+            await _retry.Execute($"removing job {jobId}", () => Collection.DeleteOneAsync(GetIdFilter<JobState>(jobId))).ConfigureAwait(false);
             return Catch.Success();
         }
         catch (Exception ex)
@@ -152,8 +166,11 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
                 return error;
             }
 
-            using var cursor = await GetTypedCollection<TJobState>().FindAsync(GetIdFilter<TJobState>(jobId)).ConfigureAwait(false);
-            var jobState = await cursor.FirstOrDefaultAsync();
+            var jobState = await _retry.Execute($"reading job {jobId}", async () =>
+            {
+                using var cursor = await GetTypedCollection<TJobState>().FindAsync(GetIdFilter<TJobState>(jobId)).ConfigureAwait(false);
+                return await cursor.FirstOrDefaultAsync();
+            }).ConfigureAwait(false);
             return jobState is not null ? jobState : JobError.NotFound;
         }
         catch (Exception ex)
@@ -172,9 +189,9 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
                 return error;
             }
 
-            await GetTypedCollection<TJobState>()
-                .ReplaceOneAsync(GetIdFilter<TJobState>(jobId), state, new ReplaceOptions { IsUpsert = true })
-                .ConfigureAwait(false);
+            await _retry.Execute(
+                $"saving job {jobId}",
+                () => GetTypedCollection<TJobState>().ReplaceOneAsync(GetIdFilter<TJobState>(jobId), state, new ReplaceOptions { IsUpsert = true })).ConfigureAwait(false);
 
             return default(None);
         }
@@ -198,11 +215,15 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
                 return JobError.TypeIsNotAssociatedWithAJobType;
             }
 
-            await EnsureIndexes().ConfigureAwait(false);
-            using var cursor = await GetTypedCollection<TJobState>().FindAsync(
-                TypeAndStatusFilter<TJobState>(jobType, statuses),
-                new FindOptions<TJobState, BsonDocument>()).ConfigureAwait(false);
-            return (await DeserializeJobs<TJobState>(cursor).ConfigureAwait(false)).ToImmutableList();
+            var jobs = await _retry.Execute("getting jobs of type", async () =>
+            {
+                await EnsureIndexes().ConfigureAwait(false);
+                using var cursor = await GetTypedCollection<TJobState>().FindAsync(
+                    TypeAndStatusFilter<TJobState>(jobType, statuses),
+                    new FindOptions<TJobState, BsonDocument>()).ConfigureAwait(false);
+                return await DeserializeJobs<TJobState>(cursor).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+            return jobs.ToImmutableList();
         }
         catch (Exception ex)
         {
