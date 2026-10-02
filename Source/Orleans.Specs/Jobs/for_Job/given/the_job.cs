@@ -8,6 +8,7 @@ using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.Jobs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Orleans.TestKit;
 using Orleans.Utilities;
@@ -25,6 +26,8 @@ public class the_job : Specification
     protected IJobTypes _jobTypes;
 
     protected List<JobStepState> _storedJobStepStates;
+
+    protected virtual JobsOptions CreateOptions() => new();
 
     protected int StoredJobStepsWith(JobStepStatus status) => _storedJobStepStates.Count(state => state.Status == status);
 
@@ -75,6 +78,7 @@ public class the_job : Specification
         _jobTypes.GetFor(Arg.Any<Type>()).Returns(Result<JobType, IJobTypes.GetForError>.Success(new JobType("SomeJob")));
         _silo.AddService(_jobsStorage);
         _silo.AddService(_jobTypes);
+        _silo.AddService(Options.Create(CreateOptions()));
         _silo.AddService(NullLogger<IJob>.Instance);
         _silo.AddService(NullLogger<ObserverManager<IJobObserver>>.Instance);
         var loggerFactory = Substitute.For<ILoggerFactory>();

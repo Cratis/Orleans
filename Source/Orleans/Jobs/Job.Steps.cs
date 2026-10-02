@@ -7,12 +7,15 @@ using Cratis.Monads;
 using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Storage.Jobs;
 using Cratis.Reflection;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
-    const int MaxConcurrentJobStepStartups = 50;
+    int MaxConcurrentJobStepStartups =>
+        Math.Max(1, ServiceProvider.GetService<IOptions<JobsOptions>>()?.Value?.MaxConcurrentStepStarts ?? new JobsOptions().MaxConcurrentStepStarts);
 
     /// <inheritdoc/>
     public async Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult jobStepResult)
