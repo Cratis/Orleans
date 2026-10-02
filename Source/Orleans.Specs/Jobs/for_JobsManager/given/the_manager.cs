@@ -43,9 +43,24 @@ public class the_manager : Specification
         _jobTypes.GetClrTypeFor(Arg.Any<JobType>()).Returns(Result.Failed<Type, IJobTypes.GetClrTypeForError>(IJobTypes.GetClrTypeForError.CouldNotFindType));
 
         _jobStorage.GetJobs(Arg.Any<JobStatus[]>()).Returns(_ => Task.FromResult(Catch.Success<IImmutableList<JobState>>([.. _storedJobs])));
+        _jobStorage.GetJobs(Arg.Any<JobQuery>()).Returns(callInfo =>
+        {
+            var query = callInfo.Arg<JobQuery>();
+            var jobs = _storedJobs.Where(job =>
+                (query.Type is null || job.Type == query.Type) &&
+                (query.Statuses.Count == 0 || query.Statuses.Contains(job.Status)) &&
+                (query.CreatedBefore is null || job.Created < query.CreatedBefore))
+                .OrderBy(job => job.Created)
+                .ThenBy(job => job.Id)
+                .Skip(query.Skip)
+                .Take(query.Take)
+                .ToImmutableList();
+            return Task.FromResult(Catch.Success<IImmutableList<JobState>>(jobs));
+        });
         _jobStorage.GetJob(Arg.Any<JobId>()).Returns(callInfo => Task.FromResult(
             _storedJobs.SingleOrDefault(job => job.Id == callInfo.Arg<JobId>()) ?? Catch.Failed<JobState, Storage.Jobs.JobError>(Storage.Jobs.JobError.NotFound)));
         _jobStorage.Remove(Arg.Any<JobId>()).Returns(Task.FromResult(Catch.Success()));
+        _jobStorage.RemoveTerminal(Arg.Any<JobId>()).Returns(Task.FromResult(Catch.Success(false)));
 
         _jobStepStorage.RemoveAllForJob(Arg.Any<JobId>()).Returns(Task.FromResult(Catch.Success()));
 

@@ -30,6 +30,7 @@ public class JobStorage(
     IJobTypes jobTypes,
     JsonSerializerOptions hostJsonSerializerOptions) : IJobStorage
 {
+    static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
     readonly JsonSerializerOptions _jsonSerializerOptions = WithJobStateConverter(hostJsonSerializerOptions, jobTypes);
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
 
@@ -88,6 +89,40 @@ public class JobStorage(
     }
 
     /// <inheritdoc/>
+    public async Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query)
+    {
+        try
+        {
+            await using var dbContext = contextFactory();
+            var jobs = dbContext.Jobs.AsQueryable();
+
+            if (query.Type is { } type)
+            {
+                jobs = jobs.Where(job => job.Type == type.Value);
+            }
+            if (query.Statuses.Count > 0)
+            {
+                jobs = jobs.Where(job => query.Statuses.Contains(job.Status));
+            }
+            if (query.CreatedBefore is { } createdBefore)
+            {
+                jobs = jobs.Where(job => job.Created < createdBefore);
+            }
+
+            jobs = jobs.OrderBy(job => job.Created).ThenBy(job => job.Id).Skip(Math.Max(0, query.Skip));
+            if (query.Take > 0)
+            {
+                jobs = jobs.Take(query.Take);
+            }
+            return (await jobs.ToListAsync()).Where(IsRegistered).Select(job => job.ToJobState(_jsonSerializerOptions)).ToImmutableList();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
     public Catch<ISubject<IEnumerable<JobState>>> ObserveJobs(params JobStatus[] statuses)
     {
         try
@@ -130,6 +165,23 @@ public class JobStorage(
                 await dbContext.SaveChangesAsync();
             }
             return Catch.Success();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<Catch<bool>> RemoveTerminal(JobId jobId)
+    {
+        try
+        {
+            await using var dbContext = contextFactory();
+            var deleted = await dbContext.Jobs
+                .Where(job => job.Id == jobId.Value && _terminalStatuses.Contains(job.Status))
+                .ExecuteDeleteAsync();
+            return deleted == 1;
         }
         catch (Exception ex)
         {

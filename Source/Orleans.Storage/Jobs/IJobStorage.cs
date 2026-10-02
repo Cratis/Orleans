@@ -32,6 +32,13 @@ public interface IJobStorage
     Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses);
 
     /// <summary>
+    /// Gets one bounded page of jobs selected by storage-side filters.
+    /// </summary>
+    /// <param name="query">The type, status, age, and page selection.</param>
+    /// <returns>A page of job state objects, ordered by creation time and identity.</returns>
+    Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query);
+
+    /// <summary>
     /// Observe jobs of a given type with a given status.
     /// </summary>
     /// <param name="statuses">Optional params of <see cref="JobStatus"/> to filter on.</param>
@@ -47,6 +54,17 @@ public interface IJobStorage
     /// <param name="jobId">The <see cref="JobId"/> of the job to remove.</param>
     /// <returns>Awaitable task.</returns>
     Task<Catch> Remove(JobId jobId);
+
+    /// <summary>
+    /// Removes a job only when it is in an immutable terminal state.
+    /// </summary>
+    /// <param name="jobId">The <see cref="JobId"/> of the job to remove.</param>
+    /// <returns>Whether a terminal job was removed.</returns>
+    /// <remarks>
+    /// This conditional operation is intentionally separate from normal job removal so retention can never
+    /// delete a preparing, running, stopped, or removing job.
+    /// </remarks>
+    Task<Catch<bool>> RemoveTerminal(JobId jobId);
 
     /// <summary>
     /// Read the state of a job.

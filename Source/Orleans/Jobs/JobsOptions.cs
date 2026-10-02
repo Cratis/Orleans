@@ -78,6 +78,25 @@ public class JobsOptions
     public int MaxConcurrentCleanup { get; init; } = 4;
 
     /// <summary>
+    /// Gets how long immutable terminal jobs are retained before cleanup.
+    /// </summary>
+    /// <remarks>
+    /// Completed-with-failures and failed jobs are retained for diagnostics, then removed with their regular and
+    /// failed job steps. Preparing, running, stopped, and removing jobs are never retention candidates. Defaults
+    /// to 7 days; set to <see cref="Timeout.InfiniteTimeSpan"/> to retain terminal jobs indefinitely.
+    /// </remarks>
+    public TimeSpan TerminalJobRetention { get; init; } = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// Gets the maximum number of terminal jobs selected for one cleanup pass.
+    /// </summary>
+    /// <remarks>
+    /// Cleanup fetches this bounded oldest-first page at storage rather than materializing the job collection.
+    /// Values below 1 are treated as 1. Defaults to 100.
+    /// </remarks>
+    public int MaxTerminalJobsPerCleanup { get; init; } = 100;
+
+    /// <summary>
     /// Gets the maximum number of job steps a single job starts concurrently when it starts or resumes.
     /// Defaults to 16. Values below 1 are treated as 1.
     /// </summary>

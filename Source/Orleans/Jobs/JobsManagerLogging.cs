@@ -104,6 +104,18 @@ public static partial class JobsManagerLogMessages
     [LoggerMessage(LogLevel.Warning, "Failed to get jobs for cleanup")]
     public static partial void FailedToGetJobsForCleanup(this ILogger<JobsManager> logger, Exception exception);
 
+    [LoggerMessage(LogLevel.Information, "Found {Count} terminal jobs to clean up")]
+    public static partial void FoundTerminalJobs(this ILogger<JobsManager> logger, int count);
+
+    [LoggerMessage(LogLevel.Warning, "Failed to remove steps for terminal job {JobId}")]
+    public static partial void FailedToRemoveTerminalJobSteps(this ILogger<JobsManager> logger, JobId jobId, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "Failed to remove terminal job {JobId}")]
+    public static partial void FailedToRemoveTerminalJob(this ILogger<JobsManager> logger, JobId jobId, Exception exception);
+
+    [LoggerMessage(LogLevel.Debug, "Skipped removal because job {JobId} is no longer terminal")]
+    public static partial void SkippedTerminalJobRemoval(this ILogger<JobsManager> logger, JobId jobId);
+
     [LoggerMessage(LogLevel.Warning, "Failed to get step count for job {JobId}")]
     public static partial void FailedToGetStepCountForJob(this ILogger<JobsManager> logger, JobId jobId, Exception error);
 
