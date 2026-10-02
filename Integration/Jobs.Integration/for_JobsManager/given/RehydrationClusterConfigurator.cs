@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Orleans.Storage;
+using Cratis.Orleans.Storage.Jobs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -35,6 +36,7 @@ public class RehydrationClusterConfigurator : ISiloConfigurator, IClientBuilderC
             }
             return Catch.Success<IImmutableList<JobState>>([.. jobs]);
         });
+        lifecycle.JobStorage.GetJobs(Arg.Any<JobQuery>()).Returns(Task.FromResult(Catch.Success<IImmutableList<JobState>>([])));
         lifecycle.JobStorage.GetJob(Arg.Any<JobId>()).Returns(async call =>
         {
             lifecycle.FirstReadStarted.TrySetResult();
