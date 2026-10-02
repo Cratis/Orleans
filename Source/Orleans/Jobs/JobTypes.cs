@@ -34,6 +34,9 @@ public class JobTypes : IJobTypes
     /// </summary>
     public static IJobTypes Instance { get; private set; } = null!;
 
+    /// <inheritdoc/>
+    public IReadOnlyCollection<JobType> All => _jobTypes.Keys;
+
     /// <inheritdoc />
     public Result<JobType, IJobTypes.GetForError> GetFor(Type type)
     {

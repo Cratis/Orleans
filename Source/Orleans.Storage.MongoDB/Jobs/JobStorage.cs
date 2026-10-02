@@ -3,8 +3,6 @@
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Reactive;
-using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs;
@@ -34,8 +32,6 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     const string TypeElementName = "type";
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
-
-    static JobStorage() => BsonSerializer.TryRegisterSerializer(new ObservedJobStateSerializer());
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JobStorage"/> class with logging.
@@ -105,14 +101,11 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            var source = database.GetCollection<ObservedJobState>(WellKnownCollectionNames.Jobs)
-                .Observe(StatusFilter<ObservedJobState>(statuses));
-            var observable = source.Select(documents => (IEnumerable<JobState>)DeserializeJobs<JobState>(documents.Select(state => state.Document)));
-            var observer = Observer.Create<IEnumerable<JobState>>(
-                jobs => source.OnNext(jobs.Select(job => BsonSerializer.Deserialize<ObservedJobState>(job.ToBsonDocument()))),
-                source.OnError,
-                source.OnCompleted);
-            return Catch.Success(Subject.Create<IEnumerable<JobState>>(observer, observable));
+            // Narrow at the server, before the observer applies paging, counts results or tracks membership.
+            var registeredTypes = Builders<JobState>.Filter.In(
+                new StringFieldDefinition<JobState, string>(TypeElementName),
+                jobTypes.All.Select(type => type.Value));
+            return Catch.Success(Collection.Observe(registeredTypes & StatusFilter<JobState>(statuses)));
         }
         catch (Exception ex)
         {

@@ -12,7 +12,7 @@ namespace Cratis.Orleans.Storage.MongoDB.Jobs.for_JobStorage.given;
 
 public class a_job_storage : Jobs.given.a_database
 {
-    protected static readonly JobType KnownJobType = new("KnownJob");
+    protected static readonly JobType KnownJobType = new("custom-job-name");
     protected static readonly IJobTypes JobTypes = Substitute.For<IJobTypes>();
     protected JobStorage _storage;
     protected IMongoCollection<JobState> _collection;
@@ -29,6 +29,7 @@ public class a_job_storage : Jobs.given.a_database
             ? Result.Success<Type, IJobTypes.GetRequestClrTypeForError>(typeof(KnownRequest))
             : Result.Failed<Type, IJobTypes.GetRequestClrTypeForError>(IJobTypes.GetRequestClrTypeForError.CouldNotFindType));
         JobTypes.GetFor(typeof(IJob)).Returns(KnownJobType);
+        JobTypes.All.Returns([KnownJobType]);
         BsonSerializer.RegisterSerializationProvider(new JobStateSerializationProvider(new JobStateSerializer(JobTypes)));
     }
 
