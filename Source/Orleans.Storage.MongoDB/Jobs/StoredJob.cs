@@ -18,6 +18,11 @@ internal sealed class StoredJob
     public JobId Id { get; set; } = JobId.NotSet;
 
     /// <summary>
+    /// Gets or sets the details used for sorting.
+    /// </summary>
+    public JobDetails Details { get; set; } = JobDetails.NotSet;
+
+    /// <summary>
     /// Gets or sets the persisted job type name.
     /// </summary>
     public JobType Type { get; set; } = JobType.NotSet;

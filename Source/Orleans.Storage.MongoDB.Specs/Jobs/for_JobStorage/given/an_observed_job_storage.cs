@@ -54,6 +54,7 @@ public class an_observed_job_storage : a_job_storage
         _secondJob.Created = new DateTimeOffset(2022, 1, 1, 0, 0, 0, TimeSpan.Zero);
         _thirdJob = new JobState { Id = JobId.New(), Type = KnownJobType, Status = JobStatus.Running, Created = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero), Request = new KnownRequest("third") };
         _unknownJob = new JobState { Id = JobId.New(), Type = new JobType("RemovedJob"), Status = JobStatus.Running, Created = new DateTimeOffset(2019, 1, 1, 0, 0, 0, TimeSpan.Zero), Request = new KnownRequest("unknown") }.ToBsonDocument();
+        ConfigureJobs();
         _documents.AddRange([_unknownJob, _firstJob.ToBsonDocument(), _secondJob.ToBsonDocument()]);
         if (HasCatalog)
         {
@@ -66,6 +67,10 @@ public class an_observed_job_storage : a_job_storage
             _storage = new JobStorage(_database, types);
             ConfigureCollection(Collection<StoredJob>(WellKnownCollectionNames.Jobs));
         }
+    }
+
+    protected virtual void ConfigureJobs()
+    {
     }
 
     void ConfigureCollection<TDocument>(IMongoCollection<TDocument> collection)
