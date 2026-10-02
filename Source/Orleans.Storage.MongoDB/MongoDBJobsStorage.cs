@@ -4,6 +4,8 @@
 using System.Collections.Concurrent;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.MongoDB.Serialization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 
@@ -26,6 +28,23 @@ public class MongoDBJobsStorage(
     IOptions<MongoDBJobsStorageOptions> options) : IJobsStorage
 {
     readonly ConcurrentDictionary<string, JobsStorage> _storageByScopeAndNamespace = new();
+    readonly ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MongoDBJobsStorage"/> class with logging.
+    /// </summary>
+    /// <param name="client">The MongoDB client.</param>
+    /// <param name="jobTypes">The registered job types.</param>
+    /// <param name="customSerializers">The custom BSON serializers.</param>
+    /// <param name="options">The storage options.</param>
+    /// <param name="loggerFactory">The logger factory.</param>
+    public MongoDBJobsStorage(
+        IMongoClient client,
+        IJobTypes jobTypes,
+        ICustomSerializers customSerializers,
+        IOptions<MongoDBJobsStorageOptions> options,
+        ILoggerFactory loggerFactory)
+        : this(client, jobTypes, customSerializers, options) => _loggerFactory = loggerFactory;
 
     /// <inheritdoc/>
     public JobsStorage GetFor(string scope, string @namespace)
@@ -43,7 +62,9 @@ public class MongoDBJobsStorage(
         var databaseName = options.Value.DatabaseNameResolver?.Invoke(scope, @namespace)
             ?? DatabaseNames.ForJobs(scope, @namespace);
         var database = client.GetDatabase(databaseName);
-        storage = new JobsStorage(new Jobs.JobStorage(database, jobTypes), new Jobs.JobStepStorage(database));
+        storage = new JobsStorage(
+            new Jobs.JobStorage(database, jobTypes, _loggerFactory.CreateLogger<Jobs.JobStorage>()),
+            new Jobs.JobStepStorage(database));
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
     }

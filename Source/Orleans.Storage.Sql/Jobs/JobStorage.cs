@@ -8,6 +8,8 @@ using Cratis.Monads;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using OneOf.Types;
 
 using JobError = Cratis.Orleans.Storage.Jobs.JobError;
@@ -29,6 +31,21 @@ public class JobStorage(
     JsonSerializerOptions hostJsonSerializerOptions) : IJobStorage
 {
     readonly JsonSerializerOptions _jsonSerializerOptions = WithJobStateConverter(hostJsonSerializerOptions, jobTypes);
+    readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStorage"/> class with logging.
+    /// </summary>
+    /// <param name="contextFactory">Factory creating the jobs context.</param>
+    /// <param name="jobTypes">The registered job types.</param>
+    /// <param name="hostJsonSerializerOptions">The host-provided serializer options.</param>
+    /// <param name="logger">The logger.</param>
+    public JobStorage(
+        Func<JobsDbContext> contextFactory,
+        IJobTypes jobTypes,
+        JsonSerializerOptions hostJsonSerializerOptions,
+        ILogger<JobStorage> logger)
+        : this(contextFactory, jobTypes, hostJsonSerializerOptions) => _logger = logger;
 
     /// <inheritdoc/>
     public async Task<Catch<JobState, JobError>> GetJob(JobId jobId)
@@ -59,7 +76,10 @@ public class JobStorage(
             }
 
             var jobs = await query.ToListAsync();
-            return jobs.Select(j => j.ToJobState(_jsonSerializerOptions)).ToImmutableList();
+
+            // This read (also used by ObserveJobs) has no paging or counting. Check each row before
+            // converting its request, including when a custom registry cannot enumerate its types.
+            return jobs.Where(IsRegistered).Select(j => j.ToJobState(_jsonSerializerOptions)).ToImmutableList();
         }
         catch (Exception ex)
         {
@@ -79,9 +99,13 @@ public class JobStorage(
             Task.Run(async () =>
             {
                 var jobs = await GetJobs(statuses);
-                if (jobs.TryPickT0(out var jobList, out _))
+                if (jobs.TryPickT0(out var jobList, out var error))
                 {
                     subject.OnNext(jobList);
+                }
+                else
+                {
+                    subject.OnError(error);
                 }
             });
 
@@ -208,7 +232,7 @@ public class JobStorage(
             var jobs = await query.ToListAsync();
             var jobStates = new List<TJobState>();
 
-            foreach (var job in jobs)
+            foreach (var job in jobs.Where(IsRegistered))
             {
                 if (!string.IsNullOrEmpty(job.StateJson))
                 {
@@ -241,5 +265,17 @@ public class JobStorage(
         var derived = new JsonSerializerOptions(source);
         derived.Converters.Add(new JobStateConverter(jobTypes));
         return derived;
+    }
+
+    bool IsRegistered(Job job)
+    {
+        var jobType = new JobType(job.Type);
+        if (jobTypes.GetClrTypeFor(jobType).IsSuccess)
+        {
+            return true;
+        }
+
+        _logger.SkippingUnknownJobType(job.Id, jobType);
+        return false;
     }
 }

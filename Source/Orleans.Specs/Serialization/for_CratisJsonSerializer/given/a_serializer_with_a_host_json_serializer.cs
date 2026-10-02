@@ -14,6 +14,7 @@ namespace Cratis.Orleans.Serialization.for_CratisJsonSerializer.given;
 /// overwrites the shared codec's single <c language="csharp">JsonCodecOptions.SerializerOptions</c>. The Cratis types
 /// must be unaffected by that overwrite.
 /// </summary>
+[Collection("JobTypes")]
 public class a_serializer_with_a_host_json_serializer : Specification
 {
     protected Serializer _serializer;
