@@ -13,8 +13,8 @@ public class without_registered_types : given.an_observed_job_storage
 
     void Establish()
     {
-        var types = Substitute.For<IJobTypes>();
-        types.All.Returns([]);
+        var types = Substitute.For<IJobTypes, IJobTypesCatalog>();
+        ((IJobTypesCatalog)types).All.Returns([]);
         _storage = new JobStorage(_database, types);
     }
 

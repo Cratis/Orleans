@@ -3,6 +3,8 @@
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Reactive;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs;
@@ -101,11 +103,24 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            // Narrow at the server, before the observer applies paging, counts results or tracks membership.
-            var registeredTypes = Builders<JobState>.Filter.In(
-                new StringFieldDefinition<JobState, string>(TypeElementName),
-                jobTypes.All.Select(type => type.Value));
-            return Catch.Success(Collection.Observe(registeredTypes & StatusFilter<JobState>(statuses)));
+            if (jobTypes is IJobTypesCatalog catalog)
+            {
+                // Narrow at the server, before the observer applies paging, counts results or tracks membership.
+                var registeredTypes = Builders<JobState>.Filter.In(
+                    new StringFieldDefinition<JobState, string>(TypeElementName),
+                    catalog.All.Select(type => type.Value));
+                return Catch.Success(Collection.Observe(registeredTypes & StatusFilter<JobState>(statuses)));
+            }
+
+            // Legacy registries cannot supply a server-side type filter. Observe raw requests and skip unknown
+            // types before deserializing them. Paging/counts in this fallback still describe the stored rows.
+            var source = GetTypedCollection<StoredJob>().Observe(StatusFilter<StoredJob>(statuses));
+            return Catch.Success(Subject.Create<IEnumerable<JobState>>(
+                Observer.Create<IEnumerable<JobState>>(
+                    jobs => source.OnNext(jobs.Select(job => BsonSerializer.Deserialize<StoredJob>(job.ToBsonDocument()))),
+                    source.OnError,
+                    source.OnCompleted),
+                source.Select(documents => (IEnumerable<JobState>)DeserializeJobs<JobState>(documents.Select(document => document.ToBsonDocument())))));
         }
         catch (Exception ex)
         {

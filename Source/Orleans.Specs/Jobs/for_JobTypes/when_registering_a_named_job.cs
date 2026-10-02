@@ -3,6 +3,7 @@
 
 namespace Cratis.Orleans.Jobs.for_JobTypes;
 
+[Collection("JobTypes")]
 public class when_registering_a_named_job : Specification
 {
     JobTypes _registry;

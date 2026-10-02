@@ -13,7 +13,7 @@ namespace Cratis.Orleans.Jobs;
 /// Represents an implementation of <see cref="IJobTypes"/>.
 /// </summary>
 [Singleton]
-public class JobTypes : IJobTypes
+public class JobTypes : IJobTypes, IJobTypesCatalog
 {
     readonly Dictionary<JobType, Type> _jobTypes = [];
     readonly Dictionary<Type, JobType> _jobTypePerType = [];

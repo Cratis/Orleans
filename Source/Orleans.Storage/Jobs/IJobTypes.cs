@@ -38,11 +38,6 @@ public interface IJobTypes
     }
 
     /// <summary>
-    /// Gets all registered job types using their persisted names.
-    /// </summary>
-    IReadOnlyCollection<JobType> All { get; }
-
-    /// <summary>
     /// Gets the <see cref="JobType"/> associated with the CLR <see cref="Type"/> or <see cref="None"/>.
     /// </summary>
     /// <param name="type">The <see cref="Type"/>.</param>

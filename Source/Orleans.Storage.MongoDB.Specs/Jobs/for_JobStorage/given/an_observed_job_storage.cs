@@ -41,6 +41,7 @@ public class an_observed_job_storage : a_job_storage
 
     protected virtual Paging QueryPaging => Paging.NotPaged;
     protected virtual Sorting QuerySorting => Sorting.None;
+    protected virtual bool HasCatalog => true;
 
     void Establish()
     {
@@ -49,37 +50,53 @@ public class an_observed_job_storage : a_job_storage
         queryContextManager.Current.Returns(_queryContext);
         var host = new HostBuilder().ConfigureServices(services => services.AddLogging(logging => logging.AddProvider(_logger)).AddSingleton(queryContextManager)).Build();
         _application = new ArcApplication(host, new ArcOptions());
-        _collection.Settings.Returns(new MongoCollectionSettings());
-        _collection.DocumentSerializer.Returns(BsonSerializer.LookupSerializer<JobState>());
-
         _firstJob.Created = new DateTimeOffset(2021, 1, 1, 0, 0, 0, TimeSpan.Zero);
         _secondJob.Created = new DateTimeOffset(2022, 1, 1, 0, 0, 0, TimeSpan.Zero);
         _thirdJob = new JobState { Id = JobId.New(), Type = KnownJobType, Status = JobStatus.Running, Created = new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero), Request = new KnownRequest("third") };
         _unknownJob = new JobState { Id = JobId.New(), Type = new JobType("RemovedJob"), Status = JobStatus.Running, Created = new DateTimeOffset(2019, 1, 1, 0, 0, 0, TimeSpan.Zero), Request = new KnownRequest("unknown") }.ToBsonDocument();
         _documents.AddRange([_unknownJob, _firstJob.ToBsonDocument(), _secondJob.ToBsonDocument()]);
-        _collection.CountDocumentsAsync(Arg.Any<FilterDefinition<JobState>>(), Arg.Any<CountOptions>(), Arg.Any<CancellationToken>()).Returns(call =>
-            _documents.LongCount(document => Matches(Render(call.Arg<FilterDefinition<JobState>>()), document)));
-        _collection.FindAsync(Arg.Any<FilterDefinition<JobState>>(), Arg.Any<FindOptions<JobState, JobState>>(), Arg.Any<CancellationToken>()).Returns(call =>
+        if (HasCatalog)
         {
-            var filter = Render(call.Arg<FilterDefinition<JobState>>());
-            var options = call.Arg<FindOptions<JobState, JobState>>();
+            ConfigureCollection(_collection);
+        }
+        else
+        {
+            var types = Substitute.For<IJobTypes>();
+            types.GetClrTypeFor(Arg.Any<JobType>()).Returns(call => JobTypes.GetClrTypeFor(call.Arg<JobType>()));
+            _storage = new JobStorage(_database, types);
+            ConfigureCollection(Collection<StoredJob>(WellKnownCollectionNames.Jobs));
+        }
+    }
+
+    void ConfigureCollection<TDocument>(IMongoCollection<TDocument> collection)
+    {
+        var serializer = BsonSerializer.LookupSerializer<TDocument>();
+        BsonDocument RenderFilter(FilterDefinition<TDocument> filter) => filter.Render(new RenderArgs<TDocument>(serializer, BsonSerializer.SerializerRegistry));
+        collection.Settings.Returns(new MongoCollectionSettings());
+        collection.DocumentSerializer.Returns(serializer);
+        collection.CountDocumentsAsync(Arg.Any<FilterDefinition<TDocument>>(), Arg.Any<CountOptions>(), Arg.Any<CancellationToken>()).Returns(call =>
+            _documents.LongCount(document => Matches(RenderFilter(call.Arg<FilterDefinition<TDocument>>()), document)));
+        collection.FindAsync(Arg.Any<FilterDefinition<TDocument>>(), Arg.Any<FindOptions<TDocument, TDocument>>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var filter = RenderFilter(call.Arg<FilterDefinition<TDocument>>());
+            var options = call.Arg<FindOptions<TDocument, TDocument>>();
 
             // Model the server: filtering precedes sorting and paging, and only then does typed deserialization run.
             var documents = _documents.Where(document => Matches(filter, document));
             if (options.Sort is not null)
             {
-                var sort = options.Sort.Render(new RenderArgs<JobState>(BsonSerializer.LookupSerializer<JobState>(), BsonSerializer.SerializerRegistry)).GetElement(0);
+                var sort = options.Sort.Render(new RenderArgs<TDocument>(serializer, BsonSerializer.SerializerRegistry)).GetElement(0);
                 documents = sort.Value.AsInt32 == 1 ? documents.OrderBy(document => document[sort.Name]) : documents.OrderByDescending(document => document[sort.Name]);
             }
-            var states = documents.Skip(options.Skip ?? 0).Take(options.Limit ?? int.MaxValue).Select(document => BsonSerializer.Deserialize<JobState>(document)).ToArray();
-            var cursor = Substitute.For<IAsyncCursor<JobState>>();
+            var states = documents.Skip(options.Skip ?? 0).Take(options.Limit ?? int.MaxValue).Select(document => BsonSerializer.Deserialize<TDocument>(document)).ToArray();
+            var cursor = Substitute.For<IAsyncCursor<TDocument>>();
             cursor.Current.Returns(states);
             cursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(true, false);
             return cursor;
         });
 
-        var changeCursor = Substitute.For<IChangeStreamCursor<ChangeStreamDocument<JobState>>>();
-        IEnumerable<ChangeStreamDocument<JobState>> batch = [];
+        var changeCursor = Substitute.For<IChangeStreamCursor<ChangeStreamDocument<TDocument>>>();
+        IEnumerable<ChangeStreamDocument<TDocument>> batch = [];
         changeCursor.Current.Returns(_ => batch);
         changeCursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(async call =>
         {
@@ -91,15 +108,15 @@ public class an_observed_job_storage : a_job_storage
                     _unknownRejected.TrySetResult();
                     continue;
                 }
-                batch = [new ChangeStreamDocument<JobState>(change, BsonSerializer.LookupSerializer<JobState>())];
+                batch = [new ChangeStreamDocument<TDocument>(change, serializer)];
                 return true;
             }
         });
         changeCursor.When(cursor => cursor.Dispose()).Do(_ => _watchDisposed.TrySetResult());
-        _collection.WatchAsync(Arg.Any<PipelineDefinition<ChangeStreamDocument<JobState>, ChangeStreamDocument<JobState>>>(), Arg.Any<ChangeStreamOptions>(), Arg.Any<CancellationToken>()).Returns(call =>
+        collection.WatchAsync(Arg.Any<PipelineDefinition<ChangeStreamDocument<TDocument>, ChangeStreamDocument<TDocument>>>(), Arg.Any<ChangeStreamOptions>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
-            var pipeline = call.Arg<PipelineDefinition<ChangeStreamDocument<JobState>, ChangeStreamDocument<JobState>>>();
-            _watchFilter = pipeline.Render(new RenderArgs<ChangeStreamDocument<JobState>>(new ChangeStreamDocumentSerializer<JobState>(BsonSerializer.LookupSerializer<JobState>()), BsonSerializer.SerializerRegistry)).Documents.Single()["$match"].AsBsonDocument;
+            var pipeline = call.Arg<PipelineDefinition<ChangeStreamDocument<TDocument>, ChangeStreamDocument<TDocument>>>();
+            _watchFilter = pipeline.Render(new RenderArgs<ChangeStreamDocument<TDocument>>(new ChangeStreamDocumentSerializer<TDocument>(serializer), BsonSerializer.SerializerRegistry)).Documents.Single()["$match"].AsBsonDocument;
             return changeCursor;
         });
     }

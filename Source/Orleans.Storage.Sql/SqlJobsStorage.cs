@@ -6,6 +6,8 @@ using System.Text.Json;
 using Cratis.Orleans.Jobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Cratis.Orleans.Storage.Sql;
@@ -41,7 +43,7 @@ public class SqlJobsStorage(
         EnsureSchema(ContextFactory);
         var jsonSerializerOptions = serviceProvider.GetService<JsonSerializerOptions>() ?? new JsonSerializerOptions();
         storage = new JobsStorage(
-            new Jobs.JobStorage(ContextFactory, jobTypes, jsonSerializerOptions),
+            new Jobs.JobStorage(ContextFactory, jobTypes, jsonSerializerOptions, serviceProvider.GetService<ILogger<Jobs.JobStorage>>() ?? NullLogger<Jobs.JobStorage>.Instance),
             new Jobs.JobStepStorage(ContextFactory));
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
