@@ -88,6 +88,13 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
         where TRequest : class, IJobRequest;
 
     /// <summary>
+    /// Gets one bounded page of jobs selected in storage.
+    /// </summary>
+    /// <param name="query">The type, status, age, and page selection.</param>
+    /// <returns>A page of job states.</returns>
+    Task<IImmutableList<JobState>> GetJobs(JobQuery query);
+
+    /// <summary>
     /// Get all jobs.
     /// </summary>
     /// <returns>Collection of job states.</returns>

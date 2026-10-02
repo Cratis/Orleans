@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Monads;
+using Cratis.Orleans.Storage.Jobs;
 using Moq;
 
 using Catch = Cratis.Monads.Catch;
@@ -10,6 +11,7 @@ namespace Cratis.Orleans.Jobs.for_JobsManager;
 
 public class when_cleaning_up_dead_jobs : given.the_manager
 {
+    static readonly JobStatus[] _preparingStatuses = [JobStatus.PreparingJob, JobStatus.PreparingSteps];
     JobId _oldDeadJobId;
     JobId _recentDeadJobId;
     JobId _oldJobWithStepsId;
@@ -55,7 +57,12 @@ public class when_cleaning_up_dead_jobs : given.the_manager
 
     Task Because() => _manager.CleanupDeadJobs();
 
-    [Fact] void should_get_jobs_that_are_preparing() => _jobStorage.Received(1).GetJobs(JobStatus.PreparingJob, JobStatus.PreparingSteps);
+    [Fact] void should_get_an_age_bounded_page_of_jobs_that_are_preparing() => _jobStorage.Received(1).GetJobs(Arg.Is<JobQuery>(query => MatchesPreparingQuery(query)));
+
+    static bool MatchesPreparingQuery(JobQuery query) =>
+        query.Statuses.SequenceEqual(_preparingStatuses) &&
+        query.CreatedBefore.HasValue &&
+        query.Take > 0;
     [Fact] void should_remove_old_dead_job() => _oldDeadJob.Verify(_ => _.Remove(), Times.Once);
     [Fact] void should_not_remove_recent_dead_job() => _recentDeadJob.Verify(_ => _.Remove(), Times.Never);
     [Fact] void should_not_remove_old_job_with_steps() => _oldJobWithSteps.Verify(_ => _.Remove(), Times.Never);

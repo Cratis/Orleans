@@ -36,6 +36,7 @@ public class JobsManager(
     ILogger<JobsManager> logger) : Grain, IJobsManager
 {
     static readonly JobStatus[] _interruptedStatuses = [JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps];
+    static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
     CancellationTokenSource _rehydrationCancellation = null!;
     IDisposable? _deactivationSubscription;
     bool _deactivationNotificationsUnavailable;
@@ -208,6 +209,19 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
+    public async Task<IImmutableList<JobState>> GetJobs(JobQuery query)
+    {
+        var getJobs = await _jobStorage!.GetJobs(query);
+        return await getJobs.Match(
+            Task.FromResult,
+            exception =>
+            {
+                logger.UnableToGetAllJobs(exception);
+                return Task.FromResult<IImmutableList<JobState>>(ImmutableList<JobState>.Empty);
+            });
+    }
+
+    /// <inheritdoc/>
     public async Task<IImmutableList<JobState>> GetAllJobs()
     {
         var getJobs = await _jobStorage!.GetJobs();
@@ -227,12 +241,37 @@ public class JobsManager(
 
         logger.CleaningUpDeadJobs();
 
-        var threshold = options.Value.DeadJobThreshold;
-        var cutoffTime = DateTimeOffset.UtcNow - threshold;
-
-        var getPreparingJobs = await _jobStorage!.GetJobs(JobStatus.PreparingJob, JobStatus.PreparingSteps);
+        var now = DateTimeOffset.UtcNow;
+        var cleanupOptions = options.Value;
+        var deadJobCutoff = now - cleanupOptions.DeadJobThreshold;
+        var getPreparingJobs = await _jobStorage!.GetJobs(new JobQuery
+        {
+            Statuses = [JobStatus.PreparingJob, JobStatus.PreparingSteps],
+            CreatedBefore = deadJobCutoff,
+            Take = Math.Max(1, cleanupOptions.MaxTerminalJobsPerCleanup)
+        });
         await getPreparingJobs.Match(
-            async preparingJobs => await CleanupDeadJobsInternal(preparingJobs, cutoffTime),
+            CleanupDeadJobsInternal,
+            exception =>
+            {
+                logger.FailedToGetJobsForCleanup(exception);
+                return Task.CompletedTask;
+            });
+
+        if (cleanupOptions.TerminalJobRetention == Timeout.InfiniteTimeSpan)
+        {
+            return;
+        }
+
+        var terminalJobCutoff = now - cleanupOptions.TerminalJobRetention;
+        var getTerminalJobs = await _jobStorage.GetJobs(new JobQuery
+        {
+            Statuses = _terminalStatuses,
+            CreatedBefore = terminalJobCutoff,
+            Take = Math.Max(1, cleanupOptions.MaxTerminalJobsPerCleanup)
+        });
+        await getTerminalJobs.Match(
+            CleanupTerminalJobs,
             exception =>
             {
                 logger.FailedToGetJobsForCleanup(exception);
@@ -348,11 +387,11 @@ public class JobsManager(
         }
     }
 
-    async Task CleanupDeadJobsInternal(IEnumerable<JobState> preparingJobs, DateTimeOffset cutoffTime)
+    async Task CleanupDeadJobsInternal(IEnumerable<JobState> preparingJobs)
     {
         var deadJobs = new List<JobState>();
 
-        foreach (var job in preparingJobs.Where(j => j.Created < cutoffTime))
+        foreach (var job in preparingJobs)
         {
             var stepCountResult = await _jobStepStorage!.CountForJob(job.Id);
             var shouldDelete = await stepCountResult.Match(
@@ -379,6 +418,49 @@ public class JobsManager(
         {
             logger.NoDeadJobsFound();
         }
+    }
+
+    async Task CleanupTerminalJobs(IImmutableList<JobState> terminalJobs)
+    {
+        if (terminalJobs.Count == 0)
+        {
+            return;
+        }
+
+        logger.FoundTerminalJobs(terminalJobs.Count);
+        await RunBounded(terminalJobs, options.Value.MaxConcurrentCleanup, RemoveTerminalJob);
+    }
+
+    async Task RemoveTerminalJob(JobState job)
+    {
+        var removeSteps = await _jobStepStorage!.RemoveAllForJob(job.Id);
+        var stepsRemoved = await removeSteps.Match(
+            _ => Task.FromResult(true),
+            exception =>
+            {
+                logger.FailedToRemoveTerminalJobSteps(job.Id, exception);
+                return Task.FromResult(false);
+            });
+        if (!stepsRemoved)
+        {
+            return;
+        }
+
+        var removeJob = await _jobStorage!.RemoveTerminal(job.Id);
+        await removeJob.Match(
+            removed =>
+            {
+                if (!removed)
+                {
+                    logger.SkippedTerminalJobRemoval(job.Id);
+                }
+                return Task.CompletedTask;
+            },
+            exception =>
+            {
+                logger.FailedToRemoveTerminalJob(job.Id, exception);
+                return Task.CompletedTask;
+            });
     }
 
     async Task RunBounded(IReadOnlyCollection<JobState> jobs, int maxConcurrency, Func<JobState, Task> action, CancellationToken cancellationToken = default)

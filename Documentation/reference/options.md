@@ -31,10 +31,13 @@ setup registers the defaults.
 | `StepCheckpointBatchInterval` | 100 | How many reported batches a step accumulates before its progress checkpoint is persisted |
 | `StepCheckpointFlushInterval` | 5 seconds | How long a step may hold an unpersisted checkpoint before it is flushed regardless; zero or less disables the timed flush |
 | `MaxConcurrentRehydration` | 8 | How many stored jobs are resumed at once when the jobs manager rehydrates (oldest first); values below 1 count as 1 |
-| `MaxConcurrentCleanup` | 4 | How many dead jobs the cleanup deletes at once; values below 1 count as 1 |
+| `MaxConcurrentCleanup` | 4 | How many jobs the cleanup deletes at once; values below 1 count as 1 |
+| `TerminalJobRetention` | 7 days | How long completed-successfully, completed-with-failures, and failed jobs stay available before cleanup removes them and all their steps; `Timeout.InfiniteTimeSpan` disables terminal retention |
+| `MaxTerminalJobsPerCleanup` | 100 | The maximum oldest-first terminal jobs selected in one cleanup pass; values below 1 count as 1 |
 | `MaxConcurrentStepStarts` | 16 | How many steps of one job are started at once when it starts or resumes; values below 1 count as 1 |
 
 Rehydration and cleanup isolate each job, so one job that fails to resume or delete never stops the others.
+Cleanup reads an oldest-first, storage-filtered page; it does not materialize the entire job collection. Terminal cleanup only conditionally removes immutable terminal states, so it cannot remove preparing, running, stopped, or removing jobs. It removes regular and failed job steps before the terminal job record; a failed removal is safe to retry on the next bounded pass.
 
 `IJobsManager.Rehydrate()` waits for dead-job cleanup and loading the interrupted jobs, then returns before
 all jobs resume. The manager drains that snapshot oldest first as bounded background work on its activation

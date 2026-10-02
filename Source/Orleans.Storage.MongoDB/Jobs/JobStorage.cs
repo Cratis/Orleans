@@ -32,6 +32,8 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
 {
     const string StatusElementName = "status";
     const string TypeElementName = "type";
+    const string CreatedElementName = "created";
+    static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
     readonly TransientRetry _retry = TransientRetry.Default;
@@ -73,7 +75,20 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
             Builders<JobState>.IndexKeys
                 .Ascending(new StringFieldDefinition<JobState>(TypeElementName))
                 .Ascending(new StringFieldDefinition<JobState>(StatusElementName)),
-            new CreateIndexOptions { Name = "type_status", Background = true })
+            new CreateIndexOptions { Name = "type_status", Background = true }),
+        new(
+            Builders<JobState>.IndexKeys
+                .Ascending(new StringFieldDefinition<JobState>(StatusElementName))
+                .Ascending(new StringFieldDefinition<JobState>(CreatedElementName))
+                .Ascending("_id"),
+            new CreateIndexOptions { Name = "status_created", Background = true }),
+        new(
+            Builders<JobState>.IndexKeys
+                .Ascending(new StringFieldDefinition<JobState>(TypeElementName))
+                .Ascending(new StringFieldDefinition<JobState>(StatusElementName))
+                .Ascending(new StringFieldDefinition<JobState>(CreatedElementName))
+                .Ascending("_id"),
+            new CreateIndexOptions { Name = "type_status_created", Background = true })
     ];
 
     IMongoCollection<JobState> Collection => database.GetCollection<JobState>(WellKnownCollectionNames.Jobs);
@@ -104,6 +119,20 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
         try
         {
             var jobs = await _retry.Execute("getting jobs", () => GetJobsRaw(statuses)).ConfigureAwait(false);
+            return jobs.ToImmutableList();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query)
+    {
+        try
+        {
+            var jobs = await _retry.Execute("getting a page of jobs", () => GetJobsRaw(query)).ConfigureAwait(false);
             return jobs.ToImmutableList();
         }
         catch (Exception ex)
@@ -149,6 +178,21 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
         {
             await _retry.Execute($"removing job {jobId}", () => Collection.DeleteOneAsync(GetIdFilter<JobState>(jobId))).ConfigureAwait(false);
             return Catch.Success();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<Catch<bool>> RemoveTerminal(JobId jobId)
+    {
+        try
+        {
+            var deleted = await _retry.Execute($"removing terminal job {jobId}", () => Collection.DeleteOneAsync(
+                GetIdFilter<JobState>(jobId) & StatusFilter<JobState>(_terminalStatuses))).ConfigureAwait(false);
+            return deleted.DeletedCount == 1;
         }
         catch (Exception ex)
         {
@@ -269,19 +313,44 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
 
     static FilterDefinition<TDocument> GetIdFilter<TDocument>(Guid id) => Builders<TDocument>.Filter.Eq(new StringFieldDefinition<TDocument, Guid>("_id"), id);
 
+    static FilterDefinition<TDocument> QueryFilter<TDocument>(JobQuery query)
+    {
+        var filter = StatusFilter<TDocument>(query.Statuses);
+        if (query.Type is { } type)
+        {
+            filter &= Builders<TDocument>.Filter.Eq(new StringFieldDefinition<TDocument, JobType>(TypeElementName), type);
+        }
+        if (query.CreatedBefore is { } createdBefore)
+        {
+            filter &= Builders<TDocument>.Filter.Lt(new StringFieldDefinition<TDocument, DateTimeOffset>(CreatedElementName), createdBefore);
+        }
+        return filter;
+    }
+
     IMongoCollection<TJobState> GetTypedCollection<TJobState>() => database.GetCollection<TJobState>(WellKnownCollectionNames.Jobs);
 
     async Task EnsureIndexes() => await Collection.EnsureIndexesOnceAsync(_ensuredIndexes, [.. Indexes]).ConfigureAwait(false);
 
-    async Task<List<JobState>> GetJobsRaw(params JobStatus[] statuses)
+    async Task<List<JobState>> GetJobsRaw(params JobStatus[] statuses) => await GetJobsRaw(new JobQuery
+    {
+        Statuses = statuses,
+        Take = 0
+    }).ConfigureAwait(false);
+
+    async Task<List<JobState>> GetJobsRaw(JobQuery query)
     {
         await EnsureIndexes().ConfigureAwait(false);
 
         // The materialized Status field is kept in lockstep with the last status change (see the Job grain), so
         // filtering it directly is behavior-identical to the previous $arrayElemAt on statusChanges — and indexable.
         using var cursor = await Collection.FindAsync(
-            StatusFilter<JobState>(statuses),
-            new FindOptions<JobState, BsonDocument>()).ConfigureAwait(false);
+            QueryFilter<JobState>(query),
+            new FindOptions<JobState, BsonDocument>
+            {
+                Sort = Builders<JobState>.Sort.Ascending(CreatedElementName).Ascending("_id"),
+                Skip = Math.Max(0, query.Skip),
+                Limit = query.Take > 0 ? query.Take : null
+            }).ConfigureAwait(false);
         return await DeserializeJobs<JobState>(cursor).ConfigureAwait(false);
     }
 

@@ -49,6 +49,27 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
     }
 
     /// <inheritdoc/>
+    public Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query)
+    {
+        try
+        {
+            var jobs = _jobs.Values.Where(job =>
+                (query.Type is null || job.Type == query.Type) &&
+                (query.Statuses.Count == 0 || query.Statuses.Contains(job.Status)) &&
+                (query.CreatedBefore is null || job.Created < query.CreatedBefore))
+                .OrderBy(job => job.Created)
+                .ThenBy(job => job.Id)
+                .Skip(Math.Max(0, query.Skip));
+            var page = query.Take > 0 ? jobs.Take(query.Take) : jobs;
+            return Task.FromResult<Catch<IImmutableList<JobState>>>(page.ToImmutableList());
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<Catch<IImmutableList<JobState>>>(ex);
+        }
+    }
+
+    /// <inheritdoc/>
     public Catch<ISubject<IEnumerable<JobState>>> ObserveJobs(params JobStatus[] statuses)
     {
         try
@@ -74,6 +95,28 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
         catch (Exception ex)
         {
             return Task.FromResult<Catch>(ex);
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task<Catch<bool>> RemoveTerminal(JobId jobId)
+    {
+        try
+        {
+            if (!_jobs.TryGetValue(jobId, out var job) || !IsTerminal(job.Status))
+            {
+                return Task.FromResult<Catch<bool>>(false);
+            }
+            var removed = ((ICollection<KeyValuePair<JobId, JobState>>)_jobs).Remove(new(jobId, job));
+            if (removed)
+            {
+                PublishSnapshot();
+            }
+            return Task.FromResult<Catch<bool>>(removed);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<Catch<bool>>(ex);
         }
     }
 
@@ -152,6 +195,8 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
 
     static IEnumerable<JobState> FilterByStatus(IEnumerable<JobState> jobs, JobStatus[] statuses) =>
         statuses.Length == 0 ? jobs : jobs.Where(_ => statuses.Contains(_.Status));
+
+    static bool IsTerminal(JobStatus status) => status is JobStatus.CompletedSuccessfully or JobStatus.CompletedWithFailures or JobStatus.Failed;
 
     void PublishSnapshot() => _subject.OnNext([.. _jobs.Values]);
 }

@@ -35,6 +35,7 @@ public class RehydrationClusterConfigurator : ISiloConfigurator, IClientBuilderC
             }
             return Catch.Success<IImmutableList<JobState>>([.. jobs]);
         });
+        lifecycle.JobStorage.GetJobs(Arg.Any<JobQuery>()).Returns(Task.FromResult(Catch.Success<IImmutableList<JobState>>([])));
         lifecycle.JobStorage.GetJob(Arg.Any<JobId>()).Returns(async call =>
         {
             lifecycle.FirstReadStarted.TrySetResult();
