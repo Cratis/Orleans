@@ -3,6 +3,8 @@
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Reactive;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs;
@@ -32,6 +34,8 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     const string TypeElementName = "type";
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
+
+    static JobStorage() => BsonSerializer.TryRegisterSerializer(new ObservedJobStateSerializer());
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JobStorage"/> class with logging.
@@ -101,7 +105,14 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     {
         try
         {
-            return Catch.Success(Collection.Observe(StatusFilter<JobState>(statuses)));
+            var source = database.GetCollection<ObservedJobState>(WellKnownCollectionNames.Jobs)
+                .Observe(StatusFilter<ObservedJobState>(statuses));
+            var observable = source.Select(documents => (IEnumerable<JobState>)DeserializeJobs<JobState>(documents.Select(state => state.Document)));
+            var observer = Observer.Create<IEnumerable<JobState>>(
+                jobs => source.OnNext(jobs.Select(job => BsonSerializer.Deserialize<ObservedJobState>(job.ToBsonDocument()))),
+                source.OnError,
+                source.OnCompleted);
+            return Catch.Success(Subject.Create<IEnumerable<JobState>>(observer, observable));
         }
         catch (Exception ex)
         {
@@ -250,18 +261,25 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
         var jobs = new List<TJobState>();
         while (await cursor.MoveNextAsync().ConfigureAwait(false))
         {
-            foreach (var document in cursor.Current)
-            {
-                var jobType = new JobType(document[TypeElementName].AsString);
-                if (!jobTypes.GetClrTypeFor(jobType).IsSuccess)
-                {
-                    _logger.SkippingUnknownJobType(document["_id"].ToString()!, jobType);
-                    continue;
-                }
+            jobs.AddRange(DeserializeJobs<TJobState>(cursor.Current));
+        }
+        return jobs;
+    }
 
-                // Deserialize only registered types, so an obsolete request cannot abort the entire cursor batch.
-                jobs.Add(BsonSerializer.Deserialize<TJobState>(document));
+    List<TJobState> DeserializeJobs<TJobState>(IEnumerable<BsonDocument> documents)
+    {
+        var jobs = new List<TJobState>();
+        foreach (var document in documents)
+        {
+            var jobType = new JobType(document[TypeElementName].AsString);
+            if (!jobTypes.GetClrTypeFor(jobType).IsSuccess)
+            {
+                _logger.SkippingUnknownJobType(document["_id"].ToString()!, jobType);
+                continue;
             }
+
+            // Deserialize only registered types, so an obsolete request cannot abort the entire snapshot.
+            jobs.Add(BsonSerializer.Deserialize<TJobState>(document));
         }
         return jobs;
     }

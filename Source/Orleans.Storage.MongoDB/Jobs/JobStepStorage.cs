@@ -7,10 +7,7 @@ using Cratis.Monads;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
 using Cratis.Strings;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
-using MongoDB.Bson.Serialization;
 using MongoDB.Driver;
 using OneOf.Types;
 
@@ -28,15 +25,6 @@ namespace Cratis.Orleans.Storage.MongoDB.Jobs;
 public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
 {
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
-    readonly ILogger<JobStepStorage> _logger = NullLogger<JobStepStorage>.Instance;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="JobStepStorage"/> class with logging.
-    /// </summary>
-    /// <param name="database">The database for persistence.</param>
-    /// <param name="logger">The logger.</param>
-    public JobStepStorage(IMongoDatabase database, ILogger<JobStepStorage> logger)
-        : this(database) => _logger = logger;
 
     IMongoCollection<JobStepState> Collection => database.GetCollection<JobStepState>(WellKnownCollectionNames.JobSteps);
 
@@ -106,13 +94,13 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
 
             if (ShouldBeStoredInFailedCollection(statuses) || includeAll)
             {
-                using var failedCursor = await FailedCollection.FindAsync(filter, new FindOptions<JobStepState, BsonDocument>()).ConfigureAwait(false);
-                failedJobSteps = await DeserializeJobSteps(failedCursor).ConfigureAwait(false);
+                using var failedCursor = await FailedCollection.FindAsync(filter).ConfigureAwait(false);
+                failedJobSteps = await failedCursor.ToListAsync();
             }
             if (!statuses.All(ShouldBeStoredInFailedCollection) || includeAll)
             {
-                using var cursor = await Collection.FindAsync(filter, new FindOptions<JobStepState, BsonDocument>()).ConfigureAwait(false);
-                jobSteps = await DeserializeJobSteps(cursor).ConfigureAwait(false);
+                using var cursor = await Collection.FindAsync(filter).ConfigureAwait(false);
+                jobSteps = await cursor.ToListAsync();
             }
 
             return jobSteps.Concat(failedJobSteps).ToImmutableList();
@@ -266,26 +254,6 @@ public class JobStepStorage(IMongoDatabase database) : IJobStepStorage
     static bool ShouldBeStoredInFailedCollection(JobStepStatus status) => status is JobStepStatus.Failed or JobStepStatus.CompletedWithFailure;
 
     static bool ShouldIncludeAllJobSteps(JobStepStatus[] statuses) => statuses.Length == 0;
-
-    async Task<List<JobStepState>> DeserializeJobSteps(IAsyncCursor<BsonDocument> cursor)
-    {
-        var steps = new List<JobStepState>();
-        while (await cursor.MoveNextAsync().ConfigureAwait(false))
-        {
-            foreach (var document in cursor.Current)
-            {
-                var stepType = new JobStepType(document[nameof(JobStepState.Type).ToCamelCase()].AsString);
-                if (Type.GetType(stepType.Value) is null)
-                {
-                    _logger.SkippingUnknownJobStepType(document["_id"].ToString()!, stepType);
-                    continue;
-                }
-
-                steps.Add(BsonSerializer.Deserialize<JobStepState>(document));
-            }
-        }
-        return steps;
-    }
 
     IMongoCollection<TJobStepState> GetTypedCollection<TJobStepState>() => database.GetCollection<TJobStepState>(WellKnownCollectionNames.JobSteps);
 

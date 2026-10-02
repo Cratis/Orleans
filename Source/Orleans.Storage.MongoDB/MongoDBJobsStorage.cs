@@ -64,7 +64,7 @@ public class MongoDBJobsStorage(
         var database = client.GetDatabase(databaseName);
         storage = new JobsStorage(
             new Jobs.JobStorage(database, jobTypes, _loggerFactory.CreateLogger<Jobs.JobStorage>()),
-            new Jobs.JobStepStorage(database, _loggerFactory.CreateLogger<Jobs.JobStepStorage>()));
+            new Jobs.JobStepStorage(database));
         _storageByScopeAndNamespace.TryAdd(key, storage);
         return storage;
     }

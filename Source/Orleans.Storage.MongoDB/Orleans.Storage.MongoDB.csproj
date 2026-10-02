@@ -11,6 +11,7 @@
     </PropertyGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Cratis.Orleans.Storage.MongoDB.Specs" />
+        <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="MongoDB.Driver" />
