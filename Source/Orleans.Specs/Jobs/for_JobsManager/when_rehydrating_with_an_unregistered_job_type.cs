@@ -21,7 +21,11 @@ public class when_rehydrating_with_an_unregistered_job_type : given.the_manager
         _secondJob.Setup(job => job.Resume()).ReturnsAsync(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));
     }
 
-    Task Because() => _manager.Rehydrate();
+    async Task Because()
+    {
+        await _manager.Rehydrate();
+        await WaitForRehydration();
+    }
 
     [Fact] void should_resume_the_first_registered_job() => _firstJob.Verify(job => job.Resume(), Times.Once);
     [Fact] void should_resume_the_second_registered_job() => _secondJob.Verify(job => job.Resume(), Times.Once);

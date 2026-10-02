@@ -27,7 +27,11 @@ public class and_one_job_fails : given.the_manager
         _last.Setup(_ => _.Resume()).ReturnsAsync(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));
     }
 
-    Task Because() => _manager.Rehydrate();
+    async Task Because()
+    {
+        await _manager.Rehydrate();
+        await WaitForRehydration();
+    }
 
     [Fact] void should_attempt_the_failing_job_once() => _failing.Verify(_ => _.Resume(), Times.Once);
     [Fact] void should_resume_the_job_before_it() => _first.Verify(_ => _.Resume(), Times.Once);

@@ -48,7 +48,11 @@ public class with_more_jobs_than_the_concurrency_limit : given.the_manager
         }
     }
 
-    Task Because() => _manager.Rehydrate();
+    async Task Because()
+    {
+        await _manager.Rehydrate();
+        await WaitForRehydration();
+    }
 
     [Fact] void should_never_exceed_the_limit() => (_peak <= Limit).ShouldBeTrue();
     [Fact] void should_run_jobs_concurrently() => (_peak > 1).ShouldBeTrue();

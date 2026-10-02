@@ -36,6 +36,21 @@ setup registers the defaults.
 
 Rehydration and cleanup isolate each job, so one job that fails to resume or delete never stops the others.
 
+`IJobsManager.Rehydrate()` waits for dead-job cleanup and loading the interrupted jobs, then returns before
+all jobs resume. The manager drains that snapshot oldest first as bounded background work on its activation
+scheduler. Overlapping calls share preparation and the drain instead of starting duplicate work.
+
+A job already stopped when its slot comes up is skipped. Before dispatch, the manager reloads the job and checks
+that its status is still Running, PreparingJob, PreparingSteps, or StartingSteps. Storage has no status-only
+read, so this costs one additional job read beyond discovery; the same fresh state is reused to resolve the
+grain. An explicit `Resume()` can still resume a stopped job.
+
+The manager keeps its activation alive while the drain runs. This prevents idle collection, not requested
+deactivation, migration, memory-pressure shedding (`GrainCollectionOptions.EnableActivationSheddingOnMemoryPressure`),
+or silo shutdown. These stop further dispatch; jobs not yet resumed remain in storage and resume on the next
+`Rehydrate()` call or host startup. The drain is activation-owned, not a durable queue or a cluster-wide
+concurrency limit. Already dispatched calls may finish after cancellation.
+
 `GetEffectiveMaxParallelSteps()` returns `MaxParallelSteps ?? Math.Max(1, Environment.ProcessorCount - 1)`.
 
 ## MongoDBJobsStorageOptions

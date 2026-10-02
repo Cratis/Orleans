@@ -109,6 +109,12 @@ public static partial class JobsManagerLogMessages
 
     [LoggerMessage(LogLevel.Information, "Skipping job {JobId} due to step count retrieval error")]
     public static partial void SkippingJobDueToStepCountError(this ILogger<JobsManager> logger, JobId jobId);
+
+    [LoggerMessage(LogLevel.Warning, "Early grain deactivation notifications are unavailable; job rehydration will cancel on host shutdown or OnDeactivateAsync")]
+    internal static partial void EarlyDeactivationNotificationsUnavailable(this ILogger<JobsManager> logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Debug, "The jobs manager activation is already invalid; its rehydration keep-alive no longer needs releasing")]
+    internal static partial void RehydrationKeepAliveAlreadyReleased(this ILogger<JobsManager> logger, Exception exception);
 }
 
 public static class JobsManagerScopes

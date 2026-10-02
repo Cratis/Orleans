@@ -6,7 +6,7 @@ using Moq;
 
 namespace Cratis.Orleans.Jobs.for_JobsManager.when_rehydrating_many;
 
-public class and_state_is_already_loaded : given.the_manager
+public class and_reloading_state_before_dispatch : given.the_manager
 {
     Mock<INullJobWithSomeRequest> _job;
 
@@ -16,8 +16,12 @@ public class and_state_is_already_loaded : given.the_manager
         _job.Setup(_ => _.Resume()).ReturnsAsync(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));
     }
 
-    Task Because() => _manager.Rehydrate();
+    async Task Because()
+    {
+        await _manager.Rehydrate();
+        await WaitForRehydration();
+    }
 
     [Fact] void should_resume_the_job() => _job.Verify(_ => _.Resume(), Times.Once);
-    [Fact] void should_not_read_the_job_again() => _jobStorage.DidNotReceive().GetJob(Arg.Any<JobId>());
+    [Fact] void should_reload_the_job_once_for_a_fresh_status_and_grain_resolution() => _jobStorage.Received(1).GetJob(Arg.Any<JobId>());
 }
