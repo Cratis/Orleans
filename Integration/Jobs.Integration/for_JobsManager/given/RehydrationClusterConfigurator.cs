@@ -19,13 +19,22 @@ public class RehydrationClusterConfigurator : ISiloConfigurator, IClientBuilderC
     {
         siloBuilder.Services.AddCratisOrleansSerializers();
         var lifecycle = new RehydrationLifecycle();
-        var jobs = new[]
+        var jobs = Enumerable.Range(0, 7)
+            .Select(index => new JobState { Id = JobId.New(), Type = new JobType("RemovedJob"), Status = JobStatus.Running, Created = DateTimeOffset.UtcNow.AddSeconds(index) })
+            .ToArray();
+        lifecycle.JobStorage.GetJobs(Arg.Any<JobStatus[]>()).Returns(async call =>
         {
-            new JobState { Id = JobId.New(), Type = new JobType("RemovedJob"), Status = JobStatus.Running, Created = DateTimeOffset.UtcNow },
-            new JobState { Id = JobId.New(), Type = new JobType("RemovedJob"), Status = JobStatus.Running, Created = DateTimeOffset.UtcNow.AddSeconds(1) }
-        };
-        lifecycle.JobStorage.GetJobs(Arg.Any<JobStatus[]>()).Returns(call =>
-            Catch.Success<IImmutableList<JobState>>(call.Arg<JobStatus[]>().Contains(JobStatus.Running) ? [.. jobs] : []));
+            if (!call.Arg<JobStatus[]>().Contains(JobStatus.Running))
+            {
+                return Catch.Success<IImmutableList<JobState>>([]);
+            }
+            lifecycle.DiscoveryStarted.TrySetResult();
+            if (lifecycle.PauseDiscovery)
+            {
+                await lifecycle.AllowDiscovery.Task;
+            }
+            return Catch.Success<IImmutableList<JobState>>([.. jobs]);
+        });
         lifecycle.JobStorage.GetJob(Arg.Any<JobId>()).Returns(async call =>
         {
             lifecycle.FirstReadStarted.TrySetResult();

@@ -40,7 +40,7 @@ Rehydration and cleanup isolate each job, so one job that fails to resume or del
 all jobs resume. The manager drains that snapshot oldest first as bounded background work on its activation
 scheduler. Overlapping calls share preparation and the drain instead of starting duplicate work.
 
-A job stopped while waiting for a slot stays stopped. Before dispatch, the manager reloads the job and checks
+A job already stopped when its slot comes up is skipped. Before dispatch, the manager reloads the job and checks
 that its status is still Running, PreparingJob, PreparingSteps, or StartingSteps. Storage has no status-only
 read, so this costs one additional job read beyond discovery; the same fresh state is reused to resolve the
 grain. An explicit `Resume()` can still resume a stopped job.

@@ -30,9 +30,19 @@ public class RehydratingJobsManager(
         await lifecycle.FinishRequest.Task;
     }
 
+    public Task Deactivate()
+    {
+        DeactivateOnIdle();
+        lifecycle.DeactivationRequested.TrySetResult();
+        return Task.CompletedTask;
+    }
+
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
     {
+        lifecycle.BackgroundDrain = (Task)typeof(JobsManager).GetField("_rehydration", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(this);
         lifecycle.OnDeactivateCalled.TrySetResult();
         await base.OnDeactivateAsync(reason, cancellationToken);
+        lifecycle.DrainWasCompleteWhenDeactivated = lifecycle.BackgroundDrain?.IsCompleted ?? true;
+        lifecycle.DeactivationCompleted.TrySetResult();
     }
 }

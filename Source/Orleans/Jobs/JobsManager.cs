@@ -75,10 +75,28 @@ public class JobsManager(
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
     {
         _cleanupTimer?.Dispose();
-        _deactivationSubscription?.Dispose();
-        _deactivationSubscription = null;
-        await _rehydrationCancellation.CancelAsync();
-        _rehydrationCancellation.Dispose();
+        try
+        {
+            await _rehydrationCancellation.CancelAsync();
+            if (_rehydration is not null)
+            {
+                await _rehydration.WaitAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Orleans bounds teardown; the drain still owns its failures and releases its keep-alive.
+        }
+        catch (Exception exception)
+        {
+            logger.UnknownError(exception);
+        }
+        finally
+        {
+            _deactivationSubscription?.Dispose();
+            _deactivationSubscription = null;
+            _rehydrationCancellation.Dispose();
+        }
     }
 
     /// <inheritdoc/>
@@ -227,7 +245,7 @@ public class JobsManager(
     {
         // Orleans 10.3.1: GrainLifecycleEvents is a diagnostic API which may change between minor versions.
         // Keep its type references behind a non-inlined boundary so even JIT/type-loading failures are caught
-        // by SubscribeToDeactivation. Subscribe only during a drain so the global observer cannot pin idle grains.
+        // by SubscribeToDeactivation. Observe preparation and the drain, without pinning idle grains.
         // Unlike OnDeactivateAsync, this fires before active requests finish, possibly off-scheduler.
         // Only touch the thread-safe CTS here. Keep-alive prevents idle collection, not initiated deactivation
         // (including migration), so all deactivation reasons must cancel dispatch.
@@ -260,23 +278,36 @@ public class JobsManager(
         using var scope = logger.BeginJobsManagerScope(_key);
         var cancellationToken = _rehydrationCancellation.Token;
         cancellationToken.ThrowIfCancellationRequested();
-        logger.Rehydrating();
 
-        await CleanupDeadJobs().WaitAsync(cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        var getRunningJobs = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
-        await getRunningJobs.Match(
-            runningJobs =>
-            {
-                if (!cancellationToken.IsCancellationRequested)
+        // Deactivating is emitted only once: subscribe before preparation can yield, not just at dispatch.
+        SubscribeToDeactivation();
+        var drainStarted = false;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.Rehydrating();
+            await CleanupDeadJobs().WaitAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var getRunningJobs = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
+            await getRunningJobs.Match(
+                runningJobs =>
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     DelayDeactivation(Timeout.InfiniteTimeSpan);
-                    SubscribeToDeactivation();
                     _rehydration = ResumeJobsInBackground(runningJobs, cancellationToken);
-                }
-                return Task.CompletedTask;
-            },
-            HandleUnknownFailure);
+                    drainStarted = true;
+                    return Task.CompletedTask;
+                },
+                HandleUnknownFailure);
+        }
+        finally
+        {
+            if (!drainStarted)
+            {
+                _deactivationSubscription?.Dispose();
+                _deactivationSubscription = null;
+            }
+        }
     }
 
     async Task ResumeJobsInBackground(IEnumerable<JobState> runningJobs, CancellationToken cancellationToken)
@@ -305,7 +336,15 @@ public class JobsManager(
         {
             _deactivationSubscription?.Dispose();
             _deactivationSubscription = null;
-            DelayDeactivation(TimeSpan.Zero);
+            try
+            {
+                DelayDeactivation(TimeSpan.Zero);
+            }
+            catch (InvalidOperationException exception)
+            {
+                // Teardown can invalidate the activation before this continuation runs.
+                logger.RehydrationKeepAliveAlreadyReleased(exception);
+            }
         }
     }
 

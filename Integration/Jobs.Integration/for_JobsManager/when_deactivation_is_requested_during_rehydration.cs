@@ -7,27 +7,14 @@ using Orleans.TestingHost;
 
 namespace Cratis.Orleans.Jobs.Integration.for_JobsManager;
 
-public class when_deactivation_is_requested_during_rehydration : Specification
+public class when_deactivation_is_requested_during_rehydration : given.a_jobs_manager_with_lifecycle
 {
-    TestCluster _cluster;
-    given.RehydrationLifecycle _lifecycle;
-    given.IRehydratingJobsManager _manager;
     bool _onDeactivateWasDeferred;
     bool _hostWasStillRunning;
     bool _firstReadWasStillPending;
 
-    static TimeSpan Deadline => TimeSpan.FromSeconds(10);
-
     async Task Establish()
     {
-        _cluster = new TestClusterBuilder(1)
-            .AddSiloBuilderConfigurator<given.RehydrationClusterConfigurator>()
-            .AddClientBuilderConfigurator<given.RehydrationClusterConfigurator>()
-            .Build();
-        await _cluster.DeployAsync();
-        var services = ((InProcessSiloHandle)_cluster.Primary).SiloHost.Services;
-        _lifecycle = services.GetRequiredService<given.RehydrationLifecycle>();
-        _manager = _cluster.GrainFactory.GetGrain<given.IRehydratingJobsManager>(0, new JobsManagerKey("rehydration-lifecycle", string.Empty));
         await _manager.Rehydrate().WaitAsync(Deadline);
         await _lifecycle.FirstReadStarted.Task.WaitAsync(Deadline);
     }
@@ -44,14 +31,6 @@ public class when_deactivation_is_requested_during_rehydration : Specification
         _lifecycle.FinishRequest.SetResult();
         await deactivation.WaitAsync(Deadline);
         await _lifecycle.OnDeactivateCalled.Task.WaitAsync(Deadline);
-    }
-
-    async Task Destroy()
-    {
-        _lifecycle.AllowFirstRead.TrySetResult();
-        _lifecycle.FinishRequest.TrySetResult();
-        await _cluster.StopAllSilosAsync();
-        await _cluster.DisposeAsync();
     }
 
     [Fact] void should_stop_without_waiting_for_an_in_flight_storage_read() => _firstReadWasStillPending.ShouldBeTrue();

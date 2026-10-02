@@ -6,7 +6,7 @@ using Moq;
 
 namespace Cratis.Orleans.Jobs.for_JobsManager.when_rehydrating_many;
 
-public class and_state_is_already_loaded : given.the_manager
+public class and_reloading_state_before_dispatch : given.the_manager
 {
     Mock<INullJobWithSomeRequest> _job;
 

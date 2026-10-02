@@ -6,4 +6,5 @@ namespace Cratis.Orleans.Jobs.Integration.for_JobsManager.given;
 public interface IRehydratingJobsManager : IJobsManager
 {
     Task DeactivateWhileBusy();
+    Task Deactivate();
 }
