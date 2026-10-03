@@ -63,6 +63,7 @@ public class JobsClusterFixture : IDisposable
         // The step grains resolve this from the silo, so it has to be registered before the silo starts. One
         // instance for the whole silo; each spec resets it.
         builder.Services.AddSingleton<for_JobsManager.given.TheJobStepProcessor>();
+        builder.Services.AddSingleton<for_JobsManager.given.JobTurnHold>();
         builder.Services.AddCratisOrleansMongoDBJobsStorage(
             new MongoClient(ConnectionString),
             options => options.DatabaseNameResolver = (_, _) => DatabaseName);
