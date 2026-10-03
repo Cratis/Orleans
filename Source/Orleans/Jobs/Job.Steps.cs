@@ -125,8 +125,16 @@ public abstract partial class Job<TRequest, TJobState>
         {
             if (_jobStepGrains is not null && _jobStepGrains.TryGetValue(stepId, out var jobStepGrain))
             {
-                await UnsubscribeJobStep(jobStepGrain.AsReference<IJobObserver>());
-                _jobStepGrains.Remove(stepId, out _);
+                // A step that has reported its outcome is done whether or not it can be unsubscribed. Leaving it
+                // tracked when unsubscribing fails hands it back to the next resume as a step still left to run.
+                try
+                {
+                    await UnsubscribeJobStep(jobStepGrain.AsReference<IJobObserver>());
+                }
+                finally
+                {
+                    _jobStepGrains.Remove(stepId, out _);
+                }
             }
             else
             {
