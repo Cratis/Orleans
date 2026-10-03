@@ -225,16 +225,14 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 _logger.FinalizingJobLeftRunningAfterAllStepsCompleted();
                 await ReconcileProgressFromJobSteps();
-                _ = await HandleCompletionResult(await HandleCompletion());
-                return ResumeJobSuccess.JobIsCompleted;
+                return await FinalizeInsteadOfResuming();
             }
 
             // A job with stages resumes at the stage it had reached - unless the stage before it failed as a barrier
             // and a stop left that unacted on, in which case there is nothing to resume.
             if (await PrepareStagesForResume())
             {
-                _ = await HandleCompletionResult(await HandleCompletion());
-                return ResumeJobSuccess.JobIsCompleted;
+                return await FinalizeInsteadOfResuming();
             }
 
             _logger.Resuming();
@@ -436,6 +434,38 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Finalizes a job that was asked to resume but has nothing left to run.
+    /// </summary>
+    /// <returns><see cref="ResumeJobSuccess.JobIsCompleted"/> when the job did finalize; otherwise a failure.</returns>
+    /// <remarks>
+    /// <see cref="HandleCompletion"/> deliberately leaves a <see cref="JobStatus.Stopped"/> job stopped, because a stopped
+    /// job can be resumed later. This <em>is</em> that resume, and there is nothing left to resume: every step finished
+    /// before or while the job was stopped - a client disconnecting mid catch-up leaves exactly that. Leaving it Stopped
+    /// while reporting <see cref="ResumeJobSuccess.JobIsCompleted"/> told the caller the job had concluded when it never
+    /// would: it never ran <see cref="OnAllStepsCompleted"/>, so whatever waited on it waited forever, and every later
+    /// resume found the same stopped job and reported the same false success (Cratis/Chronicle#4363).
+    /// The job is moved out of Stopped first so it completes like any other job whose steps are all accounted for.
+    /// If it still does not complete, that is reported as a refusal rather than a success.
+    /// </remarks>
+    async Task<Result<ResumeJobSuccess, ResumeJobError>> FinalizeInsteadOfResuming()
+    {
+        if (State.Status is JobStatus.Stopped)
+        {
+            _logger.FinalizingStoppedJobWithNothingLeftToRun();
+            StatusChanged(JobStatus.Running);
+        }
+
+        var completion = await HandleCompletion();
+        _ = await HandleCompletionResult(completion);
+        if (completion.TryGetResult(out var completed) && completed is not HandleCompletionSuccess.AllStepsNotCompletedYet)
+        {
+            return ResumeJobSuccess.JobIsCompleted;
+        }
+
+        return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
     }
 
     async Task StopNonCompletedStepsAndEnsureCompletion(bool removing)

@@ -74,7 +74,14 @@ public class the_job : Specification
         _jobTypes = Substitute.For<IJobTypes>();
         _jobsStorage.GetFor(Arg.Any<string>(), Arg.Any<string>()).Returns(new JobsStorage(_jobStorage, _jobStepStorage));
 
-        _jobStepStorage.GetForJob(Arg.Any<JobId>(), Arg.Any<JobStepStatus[]>()).Returns(_ => Task.FromResult(Catch<IImmutableList<JobStepState>>.Success(_storedJobStepStates.ToImmutableList())));
+        // Filtered by status the way the real storage filters, so a step that already completed is not handed back as
+        // one still left to run.
+        _jobStepStorage.GetForJob(Arg.Any<JobId>(), Arg.Any<JobStepStatus[]>()).Returns(call =>
+        {
+            var statuses = call.ArgAt<JobStepStatus[]>(1) ?? [];
+            var states = statuses.Length == 0 ? _storedJobStepStates : _storedJobStepStates.Where(_ => statuses.Contains(_.Status));
+            return Task.FromResult(Catch<IImmutableList<JobStepState>>.Success(states.ToImmutableList()));
+        });
         _jobTypes.GetFor(Arg.Any<Type>()).Returns(Result<JobType, IJobTypes.GetForError>.Success(new JobType("SomeJob")));
         _silo.AddService(_jobsStorage);
         _silo.AddService(_jobTypes);
