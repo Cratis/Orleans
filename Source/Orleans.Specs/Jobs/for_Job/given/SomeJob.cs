@@ -24,9 +24,15 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
 
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
-    protected override Task OnAllStepsCompleted() => OnCompletedThrows
-        ? Task.FromException(new Exception())
-        : Task.CompletedTask;
+    public int AllStepsCompletedCount;
+
+    protected override Task OnAllStepsCompleted()
+    {
+        AllStepsCompletedCount++;
+        return OnCompletedThrows
+            ? Task.FromException(new Exception())
+            : Task.CompletedTask;
+    }
 
     protected override Task<bool> CanResume() => Task.FromResult(ShouldBeResumable);
 
