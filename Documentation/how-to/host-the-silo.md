@@ -37,8 +37,10 @@ app.Run();
 providers, the Cratis serializers, and the silo configuration below. All options are listed in
 [Options](../reference/options.md).
 
-The silo enables Orleans activity propagation, so trace context follows grain calls. Tenant context stays in
-Orleans request context, not in activity baggage.
+`AddCratisOrleans` already enables Orleans activity propagation, so trace context follows grain calls. You do
+not need to call `AddActivityPropagation()` in your own `UseOrleans` delegate. If you already enable it before
+calling `AddCratisOrleans`, the existing propagation filters are kept without adding duplicates. Tenant context
+stays in Orleans request context, not in activity baggage.
 
 ## Clustering
 
