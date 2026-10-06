@@ -56,6 +56,14 @@ public static class CratisOrleansSiloBuilderExtensions
 
         builder.Host.UseOrleans(silo =>
         {
+            // Orleans 10 registers its propagation filters with AddSingleton, so preserve a host's existing registration.
+            // The filter type is internal to Orleans and can only be identified by its full name.
+            if (!silo.Services.Any(descriptor => descriptor.ServiceType == typeof(IIncomingGrainCallFilter) &&
+                descriptor.ImplementationType?.FullName == "Orleans.Runtime.ActivityPropagationIncomingGrainCallFilter"))
+            {
+                silo.AddActivityPropagation();
+            }
+
             silo.Configure<ClusterOptions>(clusterOptions =>
             {
                 clusterOptions.ClusterId = options.ClusterId;

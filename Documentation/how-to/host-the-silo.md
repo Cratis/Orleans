@@ -37,6 +37,12 @@ app.Run();
 providers, the Cratis serializers, and the silo configuration below. All options are listed in
 [Options](../reference/options.md).
 
+`AddCratisOrleans` already enables Orleans activity propagation, so trace context follows grain calls. You do
+not need to call `AddActivityPropagation()` in your own `UseOrleans` delegate. If you keep an explicit call,
+call it **before** `AddCratisOrleans`; Cratis then keeps the existing propagation filters without adding duplicates.
+Do not call `AddActivityPropagation()` **after** `AddCratisOrleans`: Orleans 10.3.1 registers both propagation
+filters again, producing duplicate spans. Tenant context stays in Orleans request context, not in activity baggage.
+
 ## Clustering
 
 Locally the silo uses localhost clustering - one instance, no membership table. For running more than one
