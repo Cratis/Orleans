@@ -56,6 +56,8 @@ public static class CratisOrleansSiloBuilderExtensions
 
         builder.Host.UseOrleans(silo =>
         {
+            silo.AddActivityPropagation();
+
             silo.Configure<ClusterOptions>(clusterOptions =>
             {
                 clusterOptions.ClusterId = options.ClusterId;

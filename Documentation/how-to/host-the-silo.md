@@ -37,6 +37,9 @@ app.Run();
 providers, the Cratis serializers, and the silo configuration below. All options are listed in
 [Options](../reference/options.md).
 
+The silo enables Orleans activity propagation, so trace context follows grain calls. Tenant context stays in
+Orleans request context, not in activity baggage.
+
 ## Clustering
 
 Locally the silo uses localhost clustering - one instance, no membership table. For running more than one
