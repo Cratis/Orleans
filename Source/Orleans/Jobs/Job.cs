@@ -7,6 +7,7 @@ using Cratis.Orleans.Storage.Jobs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Orleans.Placement;
 using Orleans.Providers;
 using Orleans.Utilities;
 
@@ -18,6 +19,7 @@ namespace Cratis.Orleans.Jobs;
 /// <typeparam name="TRequest">Type of request object that gets passed to job.</typeparam>
 /// <typeparam name="TJobState">Type of state for the job.</typeparam>
 [StorageProvider(ProviderName = WellKnownGrainStorageProviders.Jobs)]
+[ResourceOptimizedPlacement]
 public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<TRequest>
     where TRequest : class, IJobRequest
     where TJobState : JobState
