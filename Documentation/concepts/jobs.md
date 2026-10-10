@@ -77,6 +77,10 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
   their start failures through the job.
 - On resume the job picks up at the stage it had reached, and the stages behind it wait their turn.
 
+## Jobs are placed where there is capacity
+
+A job is a grain of its own type, so Orleans only considers silos that have that job's class loaded. A silo that does not host a particular job never receives it. Among the silos that do host it, jobs use resource-optimized placement: a new job activates on the silo with the most headroom for CPU, memory and activations, rather than on whichever silo happened to receive the request that started it. Scaling a service out therefore spreads job load instead of pinning it to the busiest replica.
+
 ## The job's state is its storage
 
 What a job remembers - its status, its progress, its request - persists through the jobs storage (see
