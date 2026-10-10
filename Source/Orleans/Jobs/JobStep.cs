@@ -162,9 +162,10 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 case JobStepStatus.Failed:
                     return StartJobStepError.UnrecoverableFailedState;
             }
+            var cancellationToken = GetCancellationTokenForNewWork();
             _thisJobStep = GetReferenceToSelf();
             _job = GetJob(jobGrainId);
-            var scheduledWork = await Start(_cancellationTokenSource!.Token);
+            var scheduledWork = await Start(cancellationToken);
             if (scheduledWork)
             {
                 _currentlyRunning = true;
@@ -385,7 +386,8 @@ public abstract class JobStep<TRequest, TResult, TState>(
     protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
     {
         // Important! State cannot be accessed or persisted directly, we need do that through the grain reference...
-        if (_cancellationTokenSource?.IsCancellationRequested ?? true)
+        var cancellationTokenSource = _cancellationTokenSource;
+        if (cancellationTokenSource?.IsCancellationRequested ?? true)
         {
             return new()
             {
@@ -393,12 +395,14 @@ public abstract class JobStep<TRequest, TResult, TState>(
             };
         }
 
-        // Acquire throttle slot before performing work
+        // Capture the token before awaiting: stopping can clear and dispose the source while acquiring a slot.
+        CancellationToken cancellationToken;
         try
         {
-            await throttle.AcquireAsync(_cancellationTokenSource.Token);
+            cancellationToken = cancellationTokenSource.Token;
+            await throttle.AcquireAsync(cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
             return new()
             {
@@ -408,12 +412,20 @@ public abstract class JobStep<TRequest, TResult, TState>(
 
         try
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new()
+                {
+                    Error = PerformWorkError.Cancelled
+                };
+            }
+
             using var scope = logger.BeginJobStepScope(Identifier, Name, JobStepStatus.Running);
 
             // TODO: Should we do something here if it fails?
             _ = await _thisJobStep.ReportStatusChange(JobStepStatus.Running);
             var currentState = await _thisJobStep.GetState();
-            var performStepResult = await PerformStep(currentState, _cancellationTokenSource.Token);
+            var performStepResult = await PerformStep(currentState, cancellationToken);
             return await performStepResult.Match(HandleJobStepResult, HandleException);
         }
         finally
@@ -621,5 +633,22 @@ public abstract class JobStep<TRequest, TResult, TState>(
             ExceptionStackTrace = exceptionStackTrace ?? string.Empty
         });
         state.State.Status = status;
+    }
+
+    /// <summary>
+    /// Gets the cancellation token for new work, replacing a token source that a stop has cancelled or cleared.
+    /// </summary>
+    /// <returns>A <see cref="CancellationToken"/> that is not cancelled.</returns>
+    CancellationToken GetCancellationTokenForNewWork()
+    {
+        var cancellationTokenSource = _cancellationTokenSource;
+        if (cancellationTokenSource?.IsCancellationRequested ?? true)
+        {
+            cancellationTokenSource?.Dispose();
+            cancellationTokenSource = new();
+            _cancellationTokenSource = cancellationTokenSource;
+        }
+
+        return cancellationTokenSource.Token;
     }
 }

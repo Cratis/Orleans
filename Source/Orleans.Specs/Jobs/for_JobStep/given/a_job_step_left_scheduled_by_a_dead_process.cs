@@ -34,12 +34,18 @@ public class a_job_step_left_scheduled_by_a_dead_process : Specification
         };
 
         _silo.AddPersistentState(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps, _persistedState);
-        _silo.AddService<IJobStepThrottle>(new PassThroughThrottle());
+        _silo.AddService(CreateThrottle());
         _silo.AddService<ILogger<SomeJobStepGrain>>(NullLogger<SomeJobStepGrain>.Instance);
 
         var key = new JobStepKey(_jobId, "event-store", "namespace");
         _jobStep = await _silo.CreateGrainAsync<SomeJobStepGrain>(_jobStepId, keyExtension: key);
     }
+
+    /// <summary>
+    /// Creates the throttle used by the step in this specification.
+    /// </summary>
+    /// <returns>The throttle.</returns>
+    protected virtual IJobStepThrottle CreateThrottle() => new PassThroughThrottle();
 
     sealed class PassThroughThrottle : IJobStepThrottle
     {
