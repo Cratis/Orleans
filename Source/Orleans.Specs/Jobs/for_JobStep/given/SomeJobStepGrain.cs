@@ -3,6 +3,7 @@
 
 using Cratis.Monads;
 using Cratis.Orleans.Storage.Jobs;
+using Cratis.Orleans.Workers;
 using Microsoft.Extensions.Logging;
 
 namespace Cratis.Orleans.Jobs.for_JobStep.given;
@@ -35,6 +36,16 @@ public class SomeJobStepGrain(
     public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
+    /// Gets the token supplied to the performed step.
+    /// </summary>
+    public CancellationToken PerformToken { get; private set; }
+
+    /// <summary>
+    /// Gets the completion containing the outcome of the background work, including thrown failures.
+    /// </summary>
+    public TaskCompletionSource<PerformWorkResult<JobStepResult>> WorkCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the job grain this step reports to - a substitute, wired to accept every report.
     /// </summary>
     public IJob ReportedJob { get; } = CreateAcceptingJob();
@@ -52,15 +63,34 @@ public class SomeJobStepGrain(
     protected override ValueTask InitializeState(SomeRequest request) => ValueTask.CompletedTask;
 
     /// <inheritdoc/>
+    protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
+    {
+        try
+        {
+            var result = await base.PerformWork();
+            WorkCompleted.TrySetResult(result);
+            return result;
+        }
+        catch (Exception error)
+        {
+            WorkCompleted.TrySetException(error);
+            throw;
+        }
+    }
+
+    /// <inheritdoc/>
     protected override async Task<Catch<JobStepResult>> PerformStep(JobStepState currentState, CancellationToken cancellationToken)
     {
+        PerformToken = cancellationToken;
         Performed.TrySetResult();
         if (HoldPerformOpen)
         {
             await Gate.Task;
         }
 
-        return Catch<JobStepResult>.Success(JobStepResult.Succeeded());
+        return Catch<JobStepResult>.Success(cancellationToken.IsCancellationRequested
+            ? JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult())
+            : JobStepResult.Succeeded());
     }
 
     /// <inheritdoc/>
