@@ -443,11 +443,23 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 return new() { Error = PerformWorkError.Cancelled };
             }
 
-            var currentState = await _thisJobStep.GetState();
-            var result = await CreateCancelledResultFromCurrentState(currentState);
-            return await HandleJobStepResult(JobStepResult.Failed(result is not null
-                ? PerformJobStepError.CancelledWithPartialResult(result)
-                : PerformJobStepError.CancelledWithNoResult()));
+            PerformJobStepError error;
+            try
+            {
+                var currentState = await _thisJobStep.GetState();
+                var result = await CreateCancelledResultFromCurrentState(currentState);
+                error = result is not null
+                    ? PerformJobStepError.CancelledWithPartialResult(result)
+                    : PerformJobStepError.CancelledWithNoResult();
+            }
+            catch (Exception ex)
+            {
+                // Without a partial result the stop must still reach the job, or the job never completes its stop.
+                logger.FailedUnexpectedly(ex);
+                error = PerformJobStepError.CancelledWithNoResult();
+            }
+
+            return await HandleJobStepResult(JobStepResult.Failed(error));
         }
 
         async Task<PerformWorkResult<JobStepResult>> HandleJobStepResult(JobStepResult jobStepResult)

@@ -14,6 +14,7 @@ public class when_rehydrating_after_keep_alive_is_released_before_the_drain_task
     Task _firstDrain;
     Task _secondPreparation;
     bool _keepAliveReleased;
+    int _secondRehydrationClaimed;
     bool _firstDrainWasStillPending;
 
     async Task Establish()
@@ -25,7 +26,9 @@ public class when_rehydrating_after_keep_alive_is_released_before_the_drain_task
             .Callback(() => _keepAliveReleased = true);
         scope.Setup(scope => scope.Dispose()).Callback(() =>
         {
-            if (!_keepAliveReleased || _secondPreparation is not null)
+            // Claim the one interleaving before calling Rehydrate: the second drain can dispose its own scope
+            // on another thread before Rehydrate has returned.
+            if (!_keepAliveReleased || Interlocked.Exchange(ref _secondRehydrationClaimed, 1) == 1)
             {
                 return;
             }
