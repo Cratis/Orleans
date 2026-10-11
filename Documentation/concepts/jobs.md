@@ -3,8 +3,6 @@ title: The job system
 description: What a job is, how its steps run, and what it guarantees.
 ---
 
-# The job system
-
 A **job** is work that outlives a request: a replay, a migration, a provisioning pass - anything that must
 survive the process going away while it runs. A job **plans** what it will do, then performs the plan as
 **steps**, each step its own Orleans grain.
@@ -89,6 +87,82 @@ default; override `KeepAfterCompleted` on the job to keep it queryable after it 
 failures is kept by default so the failure stays readable. A job that runs on a short cadence would keep one record
 per failed run for as long as the failure lasts, so it overrides `KeepAfterCompletedWithFailures` to let those go and
 reports its failures some other way.
+
+## Step state lasts only as long as the step needs it
+
+Step state supports execution and recovery; it is not a durable place to keep a step's output or an inbox
+for external callbacks. Its lifetime depends on the status written:
+
+| Step status | What happens to its stored state |
+| --- | --- |
+| `CompletedSuccessfully` | Deleted |
+| `Removing` (the job is being removed) | Deleted |
+| `Failed` or `CompletedWithFailure` | Moved to failed-step storage |
+| `Stopped` | Kept so the step can resume |
+| `Scheduled` or `Running` | Saved for recovery |
+| `Unreachable` (an earlier stage failed) | Saved until the job's state is cleared |
+
+Failed-step storage is a separate collection in MongoDB and in memory; SQL retains the row with a failed
+status. Clearing the job's state removes all its step rows, including failed steps. Keeping the job with
+`KeepAfterCompleted` does **not** keep successfully completed step state.
+
+A step hands its outcome to the job through `JobStepResult`, not through its stored state. On success,
+`OnStepSucceeded` receives that result after the step's successful status write. The job's
+`OnStepCompletedOrStopped` override receives results for successful, failed, and stopped steps; use it to
+copy anything the job must retain into job state.
+
+`PerformStep` receives a snapshot through the step's grain-reference `GetState()` call. That snapshot does
+not see later writes to the step's state, and changing the snapshot does not persist those changes.
+
+Since v1.16.2, the framework reports a prepared step stopped before or during its work to the job exactly
+once. Deactivation without an explicit stop leaves scheduled work recoverable for resume instead of
+reporting it as stopped. Do not add cancellation reporting in a job step's `PerformWork` override: the
+framework already reports it, and reporting it again makes the job count the stop twice.
+
+## Deliver outside input to the job, not its steps
+
+An external worker may call your application back with progress or a result while a step is running.
+Expose a method on the **job's own grain interface**, update job state in its implementation, and call
+`WriteState()`. Override `KeepAfterCompleted` when those values must survive successful completion.
+
+This excerpt adds a callback to an existing job. It assumes your serializable `WorkerProgress` type,
+`WorkerRequest : IJobRequest`, and `WorkerJobState : JobState` with a writable `LatestProgress` property of
+type `WorkerProgress`. The job's existing partial class supplies `PrepareSteps` and its other behavior;
+this is not a standalone job implementation.
+
+```csharp
+using System.Threading.Tasks;
+using Cratis.Monads;
+using Cratis.Orleans.Jobs;
+
+public interface IWorkerJob : IJob<WorkerRequest>
+{
+    Task<Catch> RecordProgress(WorkerProgress progress);
+}
+
+public partial class WorkerJob : Job<WorkerRequest, WorkerJobState>, IWorkerJob
+{
+    protected override bool KeepAfterCompleted => true;
+
+    public Task<Catch> RecordProgress(WorkerProgress progress)
+    {
+        State.LatestProgress = progress;
+        return WriteState();
+    }
+}
+```
+
+The callback handler calls `RecordProgress` through the job's grain reference. `WriteState()` returns a
+`Catch`, so returning it preserves a persistence failure for the caller to handle rather than acknowledging
+an input that was not saved. On success, the latest progress is stored with the job and survives its
+successful completion. This does not update an already-running step's snapshot or wake the step; any
+coordination with that work belongs in your job's design.
+
+:::caution[Do not use step state as a callback inbox]
+Adding step-grain methods that write `State` while `PerformStep` runs is not supported. Such a write can
+race the step's final status write, and successful completion deletes the stored state. Keep incoming
+values on the job instead.
+:::
 
 ## Rehydration
 

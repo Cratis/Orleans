@@ -87,6 +87,7 @@ public class JobStepGrainStorageProvider(IJobsStorage jobsStorage) : IGrainStora
 
         static JobStepStatus GetStatus(JobStepState state)
         {
+            if (IsInState(JobStepStatus.Removing, state)) return JobStepStatus.Removing;
             if (IsInState(JobStepStatus.Failed, state)) return JobStepStatus.Failed;
             if (IsInState(JobStepStatus.CompletedWithFailure, state)) return JobStepStatus.CompletedWithFailure;
             if (IsInState(JobStepStatus.CompletedSuccessfully, state)) return JobStepStatus.CompletedSuccessfully;
