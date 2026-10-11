@@ -36,6 +36,26 @@ public class SomeJobStepGrain(
     public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
+    /// Gets or sets whether the work waits before entering the base implementation.
+    /// </summary>
+    public bool HoldWorkBeforePerformWork { get; set; }
+
+    /// <summary>
+    /// Gets the signal that the background task has entered the work override.
+    /// </summary>
+    public TaskCompletionSource WorkEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets the gate holding work before the base implementation inspects cancellation.
+    /// </summary>
+    public TaskCompletionSource WorkGate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets or sets the partial result derived from the current state on cancellation.
+    /// </summary>
+    public object? CancelledResult { get; set; }
+
+    /// <summary>
     /// Gets the token supplied to the performed step.
     /// </summary>
     public CancellationToken PerformToken { get; private set; }
@@ -67,6 +87,11 @@ public class SomeJobStepGrain(
     {
         try
         {
+            WorkEntered.TrySetResult();
+            if (HoldWorkBeforePerformWork)
+            {
+                await WorkGate.Task;
+            }
             var result = await base.PerformWork();
             WorkCompleted.TrySetResult(result);
             return result;
@@ -94,7 +119,7 @@ public class SomeJobStepGrain(
     }
 
     /// <inheritdoc/>
-    protected override ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState) => ValueTask.FromResult<object?>(null);
+    protected override ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState) => ValueTask.FromResult(CancelledResult);
 
     static IJob CreateAcceptingJob()
     {

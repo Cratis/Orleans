@@ -1,6 +1,8 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Orleans.Workers;
+
 namespace Cratis.Orleans.Jobs.Integration;
 
 /// <summary>
@@ -35,8 +37,23 @@ public class IntegrationJobStep(
     }
 
     /// <inheritdoc/>
+    protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
+    {
+        var signals = IntegrationJobStopSignals.Find(JobId);
+        if (signals is not null)
+        {
+            signals.WorkEntered.TrySetResult();
+            await signals.ContinueWork.Task;
+        }
+        var result = await base.PerformWork();
+        signals?.WorkCompleted.TrySetResult(result);
+        return result;
+    }
+
+    /// <inheritdoc/>
     protected override async Task<Catch<JobStepResult>> PerformStep(IntegrationJobStepState currentState, CancellationToken cancellationToken)
     {
+        IntegrationJobStopSignals.Find(JobId)?.Performed.TrySetResult();
         var started = DateTimeOffset.UtcNow;
         await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
         IntegrationJobStepTimeline.Record(new(currentState.Item, started, DateTimeOffset.UtcNow));

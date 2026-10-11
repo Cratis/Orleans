@@ -42,6 +42,7 @@ public class JobsManager(
     bool _deactivationNotificationsUnavailable;
     Task? _rehydrationPreparation;
     Task? _rehydration;
+    bool _rehydrationActive;
     JobsStorage? _jobsStorageForScope;
     IJobStorage? _jobStorage;
     IJobStepStorage? _jobStepStorage;
@@ -142,7 +143,7 @@ public class JobsManager(
         {
             return _rehydrationPreparation;
         }
-        if (_rehydration?.IsCompleted == false)
+        if (_rehydrationActive)
         {
             return Task.CompletedTask;
         }
@@ -351,6 +352,8 @@ public class JobsManager(
 
     async Task ResumeJobsInBackground(IEnumerable<JobState> runningJobs, CancellationToken cancellationToken)
     {
+        _rehydrationActive = true;
+
         // Yield onto the grain scheduler, not the thread pool, so even a synchronously completing backlog
         // cannot keep Rehydrate's caller waiting. This work owns its failures and activation lifetime.
         await Task.Yield();
@@ -384,6 +387,9 @@ public class JobsManager(
                 // Teardown can invalidate the activation before this continuation runs.
                 logger.RehydrationKeepAliveAlreadyReleased(exception);
             }
+
+            // Release everything this pass owns before admitting another one. Task completion happens later.
+            _rehydrationActive = false;
         }
     }
 

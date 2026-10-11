@@ -35,6 +35,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
     CancellationTokenSource? _cancellationTokenSource = new();
     IJob _job = new NullJob();
     bool _currentlyRunning;
+    volatile bool _stopRequested;
     JobStepCheckpointDebounce _checkpoints = new(1);
 
     /// <summary>
@@ -162,10 +163,12 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 case JobStepStatus.Failed:
                     return StartJobStepError.UnrecoverableFailedState;
             }
-            var cancellationToken = GetCancellationTokenForNewWork();
+            _ = GetCancellationTokenForNewWork();
             _thisJobStep = GetReferenceToSelf();
             _job = GetJob(jobGrainId);
-            var scheduledWork = await Start(cancellationToken);
+
+            // PerformWork owns cancellation reporting; the worker must not skip it after scheduling.
+            var scheduledWork = await Start(CancellationToken.None);
             if (scheduledWork)
             {
                 _currentlyRunning = true;
@@ -225,6 +228,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
             }
 
             logger.Stopping();
+            _stopRequested = true;
             var cts = _cancellationTokenSource;
             _cancellationTokenSource = null;
             await (cts?.CancelAsync() ?? Task.CompletedTask);
@@ -389,10 +393,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
         var cancellationTokenSource = _cancellationTokenSource;
         if (cancellationTokenSource?.IsCancellationRequested ?? true)
         {
-            return new()
-            {
-                Error = PerformWorkError.Cancelled
-            };
+            return await HandleCancellation();
         }
 
         // Capture the token before awaiting: stopping can clear and dispose the source while acquiring a slot.
@@ -404,20 +405,14 @@ public abstract class JobStep<TRequest, TResult, TState>(
         }
         catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
-            return new()
-            {
-                Error = PerformWorkError.Cancelled
-            };
+            return await HandleCancellation();
         }
 
         try
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                return new()
-                {
-                    Error = PerformWorkError.Cancelled
-                };
+                return await HandleCancellation();
             }
 
             using var scope = logger.BeginJobStepScope(Identifier, Name, JobStepStatus.Running);
@@ -438,6 +433,33 @@ public abstract class JobStep<TRequest, TResult, TState>(
             catch (ObjectDisposedException)
             {
             }
+        }
+
+        async Task<PerformWorkResult<JobStepResult>> HandleCancellation()
+        {
+            // Deactivation leaves scheduled work recoverable; only an explicit stop reports an outcome.
+            if (!_stopRequested)
+            {
+                return new() { Error = PerformWorkError.Cancelled };
+            }
+
+            PerformJobStepError error;
+            try
+            {
+                var currentState = await _thisJobStep.GetState();
+                var result = await CreateCancelledResultFromCurrentState(currentState);
+                error = result is not null
+                    ? PerformJobStepError.CancelledWithPartialResult(result)
+                    : PerformJobStepError.CancelledWithNoResult();
+            }
+            catch (Exception ex)
+            {
+                // Without a partial result the stop must still reach the job, or the job never completes its stop.
+                logger.FailedUnexpectedly(ex);
+                error = PerformJobStepError.CancelledWithNoResult();
+            }
+
+            return await HandleJobStepResult(JobStepResult.Failed(error));
         }
 
         async Task<PerformWorkResult<JobStepResult>> HandleJobStepResult(JobStepResult jobStepResult)
@@ -647,6 +669,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
             cancellationTokenSource?.Dispose();
             cancellationTokenSource = new();
             _cancellationTokenSource = cancellationTokenSource;
+            _stopRequested = false;
         }
 
         return cancellationTokenSource.Token;

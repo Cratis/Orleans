@@ -21,7 +21,7 @@ public class when_rehydrating_a_backlog : given.a_controlled_backlog
         await _started[1].Task.WaitAsync(Deadline, TimeProvider.System);
         _initialResumeCount = _resumed.Count;
         _initialStorageReads = _jobStorage.ReceivedCalls().Count(call => call.GetMethodInfo().Name == nameof(IJobStorage.GetJob));
-        _drainWasStillRunning = !_rehydrationFinished.Task.IsCompleted;
+        _drainWasStillRunning = !Rehydration.IsCompleted;
 
         _completions[1].SetResult(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));
         await _started[2].Task.WaitAsync(Deadline, TimeProvider.System);
