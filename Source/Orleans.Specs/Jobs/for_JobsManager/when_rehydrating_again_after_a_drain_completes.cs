@@ -15,7 +15,6 @@ public class when_rehydrating_again_after_a_drain_completes : given.a_controlled
         CompleteResumes();
         await _manager.Rehydrate().WaitAsync(Deadline, TimeProvider.System);
         await WaitForRehydration();
-        _rehydrationFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _storedJobs.Clear();
         _newJob = AddJob<INullJobWithSomeRequest>(JobId.New());
         _newJob.Setup(job => job.Resume()).ReturnsAsync(Result<ResumeJobSuccess, ResumeJobError>.Success(ResumeJobSuccess.Success));

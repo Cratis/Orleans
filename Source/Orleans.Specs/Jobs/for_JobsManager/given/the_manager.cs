@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
+using System.Reflection;
 using Cratis.Monads;
 using Cratis.Orleans.Storage;
 using Cratis.Orleans.Storage.Jobs;
@@ -27,7 +28,7 @@ public class the_manager : Specification
     protected IJobTypes _jobTypes;
     protected IOptions<JobsOptions> _options;
     protected CancellationTokenSource _applicationStopping;
-    protected TaskCompletionSource _rehydrationFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    protected Task Rehydration => (Task)typeof(JobsManager).GetField("_rehydration", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_manager)!;
     protected bool _deactivated;
 
     protected List<JobState> _storedJobs;
@@ -70,11 +71,8 @@ public class the_manager : Specification
         var applicationLifetime = Substitute.For<IHostApplicationLifetime>();
         applicationLifetime.ApplicationStopping.Returns(_applicationStopping.Token);
         _silo.AddService(applicationLifetime);
-        _silo.GrainRuntime.Mock
-            .Setup(runtime => runtime.DelayDeactivation(It.IsAny<IGrainContext>(), TimeSpan.Zero))
-            .Callback(() => _rehydrationFinished.TrySetResult());
         _silo.AddService(_jobsStorage);
-        _silo.AddService(NullLogger<JobsManager>.Instance);
+        _silo.AddService(CreateLogger());
         _silo.AddService(_jobTypes);
         _silo.AddService(_options);
         var loggerFactory = Substitute.For<ILoggerFactory>();
@@ -94,7 +92,9 @@ public class the_manager : Specification
 
     protected virtual JobsOptions CreateOptions() => new();
 
-    protected Task WaitForRehydration() => _rehydrationFinished.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+    protected virtual ILogger<JobsManager> CreateLogger() => NullLogger<JobsManager>.Instance;
+
+    protected Task WaitForRehydration() => Rehydration.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
     protected Mock<TJob> AddJob<TJob>(JobId id)
         where TJob : class, IJob

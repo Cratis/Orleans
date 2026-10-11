@@ -13,7 +13,7 @@ public class when_rehydrating_while_a_drain_is_in_progress : given.a_controlled_
         await _manager.Rehydrate().WaitAsync(Deadline, TimeProvider.System);
         await _started[1].Task.WaitAsync(Deadline, TimeProvider.System);
         await _manager.Rehydrate().WaitAsync(Deadline, TimeProvider.System);
-        _drainWasStillRunning = !_rehydrationFinished.Task.IsCompleted;
+        _drainWasStillRunning = !Rehydration.IsCompleted;
         _initialResumeCount = _resumed.Count;
         CompleteResumes();
         await WaitForRehydration();
