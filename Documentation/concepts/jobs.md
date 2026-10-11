@@ -100,6 +100,7 @@ for external callbacks. Its lifetime depends on the status written:
 | `Failed` or `CompletedWithFailure` | Moved to failed-step storage |
 | `Stopped` | Kept so the step can resume |
 | `Scheduled` or `Running` | Saved for recovery |
+| `Unreachable` (an earlier stage failed) | Saved until the job's state is cleared |
 
 Failed-step storage is a separate collection in MongoDB and in memory; SQL retains the row with a failed
 status. Clearing the job's state removes all its step rows, including failed steps. Keeping the job with
