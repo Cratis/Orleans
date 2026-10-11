@@ -14,6 +14,13 @@ public class IntegrationJob : Job<IntegrationJobRequest, JobState>, IIntegration
     protected override bool KeepAfterCompleted => true;
 
     /// <inheritdoc/>
+    protected override Task OnStopped()
+    {
+        IntegrationJobStopSignals.Find(JobId)?.Stopped.TrySetResult();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
     protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(IntegrationJobRequest request) =>
         Task.FromResult<IImmutableList<JobStepDetails>>(
             request.Items.Select(item => new JobStepDetails(
