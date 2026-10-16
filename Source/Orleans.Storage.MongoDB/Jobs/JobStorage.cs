@@ -114,6 +114,28 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     }
 
     /// <inheritdoc/>
+    public async Task<Catch<JobType, JobError>> GetJobType(JobId jobId)
+    {
+        try
+        {
+            var document = await _retry.Execute($"getting type of job {jobId}", async () =>
+            {
+                using var cursor = await Collection.FindAsync(GetIdFilter<JobState>(jobId), new FindOptions<JobState, BsonDocument>
+                {
+                    Projection = Builders<JobState>.Projection.Include(TypeElementName).Exclude("_id"),
+                    Limit = 1
+                }).ConfigureAwait(false);
+                return await cursor.SingleOrDefaultAsync();
+            }).ConfigureAwait(false);
+            return document is not null ? new JobType(document[TypeElementName].AsString) : JobError.NotFound;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses)
     {
         try

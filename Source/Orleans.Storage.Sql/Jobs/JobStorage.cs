@@ -64,6 +64,24 @@ public class JobStorage(
     }
 
     /// <inheritdoc/>
+    public async Task<Catch<JobType, JobError>> GetJobType(JobId jobId)
+    {
+        try
+        {
+            await using var dbContext = contextFactory();
+            var type = await dbContext.Jobs.AsNoTracking()
+                .Where(job => job.Id == jobId.Value)
+                .Select(job => job.Type)
+                .FirstOrDefaultAsync();
+            return type is not null ? new JobType(type) : JobError.NotFound;
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses)
     {
         try

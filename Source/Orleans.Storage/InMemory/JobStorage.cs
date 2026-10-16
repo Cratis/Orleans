@@ -35,6 +35,10 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
     }
 
     /// <inheritdoc/>
+    public Task<Catch<JobType, JobError>> GetJobType(JobId jobId) => Task.FromResult<Catch<JobType, JobError>>(
+        _jobs.TryGetValue(jobId, out var job) ? job.Type : JobError.NotFound);
+
+    /// <inheritdoc/>
     public Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses)
     {
         try
