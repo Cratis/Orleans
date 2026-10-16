@@ -35,9 +35,9 @@ public class and_a_checkpoint_blocks_past_the_deadline : given.a_job_step_left_s
     }
 
     [Fact] void should_answer_that_the_stop_timed_out() => ((JobStepError)_stopped).ShouldEqual(JobStepError.StopTimedOut);
-    [Fact] void should_let_the_started_checkpoint_land() => _storage.Persisted.Skip(_writesWhenTheStopGaveUp).ShouldContainOnly([new given.PersistedStep(JobStepStatus.Running, "blocked")]);
-    [Fact] void should_not_record_the_step_as_stopped() => _storage.Persisted.Any(_ => _.Status == JobStepStatus.Stopped).ShouldBeFalse();
-    [Fact] async Task should_not_report_a_stop_to_the_job() => await _jobStep.ReportedJob.DidNotReceive().OnStepStopped(Arg.Any<JobStepId>(), Arg.Any<JobStepResult>());
+    [Fact] void should_let_the_started_checkpoint_land_first() => _storage.Persisted[_writesWhenTheStopGaveUp].ShouldEqual(new given.PersistedStep(JobStepStatus.Running, "blocked"));
+    [Fact] void should_record_the_stop_after_the_checkpoint() => _storage.Persisted.Skip(_writesWhenTheStopGaveUp + 1).Select(_ => _.Status).ShouldContainOnly([JobStepStatus.Stopped]);
+    [Fact] async Task should_report_the_stop_once_the_work_settles() => await _jobStep.ReportedJob.Received(1).OnStepStopped(_jobStepId, Arg.Any<JobStepResult>());
 
     void Destroy()
     {

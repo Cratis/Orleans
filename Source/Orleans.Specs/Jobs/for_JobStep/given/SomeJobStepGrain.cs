@@ -63,6 +63,16 @@ public class SomeJobStepGrain(
     public object? CancelledResult { get; set; }
 
     /// <summary>
+    /// Gets or sets the gate that deriving the cancelled result waits on; null derives it at once.
+    /// </summary>
+    public TaskCompletionSource? HoldCancelledResult { get; set; }
+
+    /// <summary>
+    /// Gets the signal that the step was asked for its cancelled result.
+    /// </summary>
+    public TaskCompletionSource CancelledResultRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the signal that the token supplied to the performed step has been cancelled.
     /// </summary>
     public TaskCompletionSource PerformCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -199,7 +209,15 @@ public class SomeJobStepGrain(
     }
 
     /// <inheritdoc/>
-    protected override ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState) => ValueTask.FromResult(CancelledResult);
+    protected override async ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState)
+    {
+        CancelledResultRequested.TrySetResult();
+        if (HoldCancelledResult is { } hold)
+        {
+            await hold.Task;
+        }
+        return CancelledResult;
+    }
 
     static IJob CreateAcceptingJob()
     {

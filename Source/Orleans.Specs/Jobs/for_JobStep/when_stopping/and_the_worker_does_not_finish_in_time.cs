@@ -8,6 +8,7 @@ namespace Cratis.Orleans.Jobs.for_JobStep.when_stopping;
 public class and_the_worker_does_not_finish_in_time : given.a_job_step_left_scheduled_by_a_dead_process
 {
     Result<JobStepError> _stopped;
+    bool _stopRecordedBeforeTheWorkSettled;
 
     protected override TimeSpan StopTimeout => TimeSpan.FromMilliseconds(100);
 
@@ -21,17 +22,18 @@ public class and_the_worker_does_not_finish_in_time : given.a_job_step_left_sche
     async Task Because()
     {
         _stopped = await _jobStep.Stop(false).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        _stopRecordedBeforeTheWorkSettled = _storage.Persisted.Any(_ => _.Status == JobStepStatus.Stopped);
 
-        // The work settles after the stop gave up on it; its late outcome must go nowhere.
+        // The work settles after the stop stopped waiting for it; the stop still owes the job its outcome.
         _jobStep.Gate.TrySetResult();
         await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
         await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     [Fact] void should_answer_that_the_stop_timed_out() => ((JobStepError)_stopped).ShouldEqual(JobStepError.StopTimedOut);
-    [Fact] void should_not_record_the_step_as_stopped() => _storage.Persisted.Any(_ => _.Status == JobStepStatus.Stopped).ShouldBeFalse();
-    [Fact] void should_leave_the_step_running() => _persistedState.Status.ShouldEqual(JobStepStatus.Running);
-    [Fact] async Task should_not_report_a_stop_to_the_job() => await _jobStep.ReportedJob.DidNotReceive().OnStepStopped(Arg.Any<JobStepId>(), Arg.Any<JobStepResult>());
+    [Fact] void should_not_record_the_stop_before_the_work_settles() => _stopRecordedBeforeTheWorkSettled.ShouldBeFalse();
+    [Fact] async Task should_report_the_stop_once_the_work_settles() => await _jobStep.ReportedJob.Received(1).OnStepStopped(_jobStepId, Arg.Any<JobStepResult>());
+    [Fact] void should_record_the_step_as_stopped_once() => _storage.Persisted.Count(_ => _.Status == JobStepStatus.Stopped).ShouldEqual(1);
 
     void Destroy()
     {
