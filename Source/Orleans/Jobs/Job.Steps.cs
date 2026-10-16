@@ -88,6 +88,7 @@ public abstract partial class Job<TRequest, TJobState>
 
     async Task<Result<JobError>> PerformStepEventHandling(JobStepId stepId, JobStepResult jobStepResult)
     {
+        _hasLiveStepTracking = true;
         try
         {
             _ = await WriteState();
@@ -123,22 +124,20 @@ public abstract partial class Job<TRequest, TJobState>
         }
         finally
         {
-            if (_jobStepGrains is not null && _jobStepGrains.TryGetValue(stepId, out var jobStepGrain))
+            try
             {
-                // A step that has reported its outcome is done whether or not it can be unsubscribed. Leaving it
-                // tracked when unsubscribing fails hands it back to the next resume as a step still left to run.
-                try
+                if (_jobStepGrains?.ContainsKey(stepId) != true)
                 {
-                    await UnsubscribeJobStep(jobStepGrain.AsReference<IJobObserver>());
+                    _logger.CompletedJobStepIsNoLongerTracked(stepId);
                 }
-                finally
-                {
-                    _jobStepGrains.Remove(stepId, out _);
-                }
+
+                // Subscription identity survives a lost tracking entry; no scan of the other steps is needed.
+                await UnsubscribeJobStep(stepId);
             }
-            else
+            finally
             {
-                _logger.CompletedJobStepIsNoLongerTracked(stepId);
+                // An unsubscribe failure must not hand an accounted-for step back to recovery.
+                _jobStepGrains?.Remove(stepId);
             }
         }
     }
@@ -314,6 +313,7 @@ public abstract partial class Job<TRequest, TJobState>
 
     async Task<Result<StartJobError>> StartAndSubscribeToJobSteps(GrainId grainId, Dictionary<JobStepId, IJobStep> jobStepGrains)
     {
+        _hasLiveStepTracking = true;
         var totalJobSteps = jobStepGrains.Count;
         var failedJobStepIds = new List<JobStepId>();
         foreach (var chunk in jobStepGrains.Chunk(MaxConcurrentJobStepStartups))
@@ -395,12 +395,12 @@ public abstract partial class Job<TRequest, TJobState>
 
     Task SubscribeJobStep(IJobObserver observer)
     {
-        _observers?.Subscribe(observer, observer);
+        _observers?.Subscribe(observer.GetPrimaryKey(), observer);
         return Task.CompletedTask;
     }
-    Task UnsubscribeJobStep(IJobObserver observer)
+    Task UnsubscribeJobStep(JobStepId stepId)
     {
-        _observers?.Unsubscribe(observer);
+        _observers?.Unsubscribe(stepId);
         return Task.CompletedTask;
     }
 }

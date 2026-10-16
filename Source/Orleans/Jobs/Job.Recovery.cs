@@ -7,6 +7,9 @@ namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
+    static bool IsAlreadyStarted(Result<StartJobStepError> result) =>
+        result.TryGetError(out var error) && error is StartJobStepError.AlreadyStarted;
+
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeInterruptedSteps()
     {
         if (!JobIsPrepared())
@@ -14,9 +17,19 @@ public abstract partial class Job<TRequest, TJobState>
             return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
         }
 
-        // Reload even in an existing activation: persisted Running is not proof of a live performer.
-        // In particular, a durable stopped step must not be restarted by automatic recovery.
-        _jobStepGrains = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
+        var resumable = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
+        if (_hasLiveStepTracking)
+        {
+            // Storage and outcome delivery are not atomic: success deletes storage before its report,
+            // failure reports before moving storage. Only this activation knows which reports it accepted.
+            var tracked = StepsInCurrentStage().Where(step => resumable.ContainsKey(step.Key))
+                .ToDictionary(step => step.Key, step => step.Value);
+            await OnBeforeResumingJobSteps();
+            return await ResumeCurrentStage(tracked, reportAlreadyRunning: true);
+        }
+
+        // A cold activation has no in-flight reports of its own, so reconstruct from durable state.
+        _jobStepGrains = resumable;
         if (_jobStepGrains.Count == 0)
         {
             var stopped = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Stopped);
@@ -33,21 +46,21 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         await OnBeforeResumingJobSteps();
-        return await ResumeCurrentStage(reportAlreadyRunning: true);
+        return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: true);
     }
 
-    async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(bool reportAlreadyRunning)
+    async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(Dictionary<JobStepId, IJobStep> steps, bool reportAlreadyRunning)
     {
+        _hasLiveStepTracking = true;
         var failedSteps = new List<JobStepId>();
         var allLive = true;
-        var steps = StepsInCurrentStage();
         foreach (var chunk in steps.Chunk(MaxConcurrentJobStepStartups))
         {
             var results = await Task.WhenAll(chunk.Select(async step =>
                 (step.Key, Grain: step.Value, Result: await step.Value.Start(this.GetGrainId()))));
             foreach (var (id, grain, result) in results)
             {
-                allLive &= result.TryGetError(out var error) && error is StartJobStepError.AlreadyStarted;
+                allLive &= IsAlreadyStarted(result);
                 if (await HandleResumeJobStepResult(id, result, grain))
                 {
                     failedSteps.Add(id);

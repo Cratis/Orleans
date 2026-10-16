@@ -25,7 +25,8 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     where TJobState : JobState
 {
     Dictionary<JobStepId, IJobStep>? _jobStepGrains;
-    ObserverManager<IJobObserver>? _observers;
+    bool _hasLiveStepTracking;
+    ObserverManager<JobStepId, IJobObserver>? _observers;
     ILogger<IJob> _logger = NullLogger<IJob>.Instance;
     IGrainTimer? _startStepsTimer;
 
@@ -115,7 +116,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         _logger = ServiceProvider.GetService<ILogger<Job<TRequest, TJobState>>>() ?? new NullLogger<Job<TRequest, TJobState>>();
         _observers = new(
             TimeSpan.FromDays(365 * 3),
-            ServiceProvider.GetService<ILogger<ObserverManager<IJobObserver>>>() ?? new NullLogger<ObserverManager<IJobObserver>>());
+            ServiceProvider.GetService<ILogger<ObserverManager<JobStepId, IJobObserver>>>() ?? new NullLogger<ObserverManager<JobStepId, IJobObserver>>());
 
         JobId = this.GetPrimaryKey(out var keyExtension);
         JobKey = keyExtension!;
@@ -248,7 +249,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             State.Progress.StoppedSteps = 0;
             _ = await WriteStatusChanged(JobStatus.Running);
             await OnBeforeResumingJobSteps();
-            return await ResumeCurrentStage(reportAlreadyRunning: false);
+            return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
         }
         catch (Exception ex)
         {

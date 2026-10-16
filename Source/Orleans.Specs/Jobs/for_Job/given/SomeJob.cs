@@ -25,10 +25,23 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
     public int AllStepsCompletedCount;
+    public List<JobStepId> HandledStepResults = [];
+    public int ResultsSeenAtCompletion;
+    public int SuccessfulStepsAtCompletion;
+    public int TotalStepsAtCompletion;
+
+    protected override Task OnStepCompletedOrStopped(JobStepId jobStepId, JobStepResult result)
+    {
+        HandledStepResults.Add(jobStepId);
+        return Task.CompletedTask;
+    }
 
     protected override Task OnAllStepsCompleted()
     {
         AllStepsCompletedCount++;
+        ResultsSeenAtCompletion = HandledStepResults.Count;
+        SuccessfulStepsAtCompletion = State.Progress.SuccessfulSteps;
+        TotalStepsAtCompletion = State.Progress.TotalSteps;
         return OnCompletedThrows
             ? Task.FromException(new Exception())
             : Task.CompletedTask;
