@@ -84,6 +84,7 @@ public static class CratisOrleansSiloBuilderExtensions
             // the options both read. TryAdd keeps host registrations in charge where they exist.
             silo.Services.TryAddSingleton<ITypes>(_ => new Cratis.Types.Types());
             silo.Services.TryAddSingleton<IJobTypes, JobTypes>();
+            silo.Services.TryAddSingleton<IJobs, Jobs.Jobs>();
             silo.Services.TryAddSingleton<IJobStepThrottle, JobStepThrottle>();
             silo.Services.TryAddSingleton<IOptions<JobsOptions>>(_ => Options.Create(new JobsOptions()));
             silo.AddCratisOrleansJobsRecovery();

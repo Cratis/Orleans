@@ -23,5 +23,6 @@ public class JobsManagerKeys : IJobsManagerKeys
     /// Records a manager key used on this silo.
     /// </summary>
     /// <param name="key">The manager key.</param>
-    internal void Remember(JobsManagerKey key) => _keys.TryAdd(key, 0);
+    /// <returns>Whether this is the first sight of the key on this silo.</returns>
+    internal bool Remember(JobsManagerKey key) => _keys.TryAdd(key, 0);
 }

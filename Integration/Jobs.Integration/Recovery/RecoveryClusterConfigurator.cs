@@ -29,6 +29,7 @@ public sealed class RecoveryClusterConfigurator : ISiloConfigurator, IClientBuil
         siloBuilder.Services.AddSingleton<RecoveryManagerKeys>();
         siloBuilder.Services.AddSingleton<ITypes>(_ => new Cratis.Types.Types());
         siloBuilder.Services.AddSingleton<IJobTypes, JobTypes>();
+        siloBuilder.Services.AddSingleton<IJobs, Jobs>();
         siloBuilder.Services.AddSingleton<IJobStepThrottle, JobStepThrottle>();
         siloBuilder.Services.AddSingleton(Options.Create(new JobsOptions()));
         siloBuilder.Services.AddCratisOrleansMongoDBJobsStorage(new MongoClient(JobsClusterFixture.ConnectionString),

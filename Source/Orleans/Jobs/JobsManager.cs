@@ -117,13 +117,7 @@ public class JobsManager(
         using var scope = logger.BeginJobsManagerScope(_key);
         logger.StartingJob(jobId);
 
-        var job = GrainFactory.GetGrain<TJob>(
-            jobId,
-            new JobKey(
-                _key.Scope,
-                _key.Namespace));
-
-        return (await job.Start(request)).Match<Result<JobId, StartJobError>>(_ => jobId, error => error);
+        return await JobStarter.Start<TJob, TRequest>(GrainFactory, new JobKey(_key.Scope, _key.Namespace), jobId, request);
     }
 
     /// <inheritdoc/>

@@ -22,6 +22,20 @@ public interface IJobStorage
     Task<Catch<JobState, JobError>> GetJob(JobId jobId);
 
     /// <summary>
+    /// Gets the stored type without reading the job's request.
+    /// </summary>
+    /// <param name="jobId">The job identity.</param>
+    /// <returns>The stored type, not found, or a storage exception.</returns>
+    /// <remarks>
+    /// Providers should override this with a metadata-only read. The compatibility fallback reads the
+    /// full job, so it cannot identify an unknown type whose request cannot be deserialized.
+    /// </remarks>
+    async Task<Catch<JobType, JobError>> GetJobType(JobId jobId) => (await GetJob(jobId)).Match<Catch<JobType, JobError>>(
+        job => job.Type,
+        error => error,
+        exception => exception);
+
+    /// <summary>
     /// Get all jobs of a given type with a given status.
     /// </summary>
     /// <param name="statuses">Optional params of <see cref="JobStatus"/> to filter on.</param>
