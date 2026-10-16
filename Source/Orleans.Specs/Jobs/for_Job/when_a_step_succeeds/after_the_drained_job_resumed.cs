@@ -7,7 +7,7 @@ namespace Cratis.Orleans.Jobs.for_Job.when_a_step_succeeds;
 
 public class after_the_drained_job_resumed : given.a_running_job_with_two_steps
 {
-    const string GenerationKey = "Cratis.Orleans.Jobs.Generation";
+    const string GenerationKey = "Cratis.Orleans.Jobs.ReportedGeneration";
 
     Result<JobError> _result;
 

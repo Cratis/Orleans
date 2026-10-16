@@ -8,7 +8,7 @@ namespace Cratis.Orleans.Jobs.for_Job.when_a_step_stops;
 
 public class with_an_older_generation : given.the_job
 {
-    const string GenerationKey = "Cratis.Orleans.Jobs.Generation";
+    const string GenerationKey = "Cratis.Orleans.Jobs.ReportedGeneration";
 
     JobStepId _stepId;
     Mock<given.ISomeJobStep> _step;

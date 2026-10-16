@@ -34,6 +34,9 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     {
         using var scope = logger.BeginJobStepScope(State);
 
+        // The generation comes as an argument; one inherited from the caller must not flow into the stop or its report.
+        _ = JobExecutionGeneration.Take();
+
         // The job drains its current execution; nothing deferred may start after it.
         _pendingStart = null;
         if (_run is not { IsSettled: false } && State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed or JobStepStatus.Stopped)
@@ -307,7 +310,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     {
         try
         {
-            using var generation = JobExecutionGeneration.Carry(pending.Generation);
+            using var generation = JobExecutionGeneration.Report(pending.Generation);
             var failure = PerformJobStepError.Failed([$"The step could not be started again after its stop: {error}"], string.Empty);
             if ((await GetJob(pending.JobGrainId).OnStepFailed(JobStepId, JobStepResult.Failed(failure))).TryGetError(out var jobError))
             {
@@ -388,8 +391,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             return;
         }
 
-        // The delivery inherits the context of whatever started it, so it always states the run's own generation.
-        using var generation = JobExecutionGeneration.Carry(run.Generation);
+        // The delivery inherits the context of whatever started it, so it always reports the run's own generation.
+        using var generation = JobExecutionGeneration.Report(run.Generation);
         try
         {
             // The job that drained the step took the outcome from the drain; reporting it again changes nothing.

@@ -7,7 +7,7 @@ namespace Cratis.Orleans.Jobs.for_Job.when_a_step_stops;
 
 public class and_a_drain_after_activation_accounted_for_it : given.a_job_activated_with_a_pending_drain
 {
-    const string GenerationKey = "Cratis.Orleans.Jobs.Generation";
+    const string GenerationKey = "Cratis.Orleans.Jobs.ReportedGeneration";
 
     Result<JobError> _result;
 

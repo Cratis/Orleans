@@ -7,7 +7,7 @@ namespace Cratis.Orleans.Jobs.for_Job.when_draining;
 
 public class and_a_push_is_queued_behind_the_drain : given.a_running_job_with_two_steps
 {
-    const string GenerationKey = "Cratis.Orleans.Jobs.Generation";
+    const string GenerationKey = "Cratis.Orleans.Jobs.ReportedGeneration";
 
     Result<JobError> _push;
 

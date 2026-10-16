@@ -5,7 +5,7 @@ namespace Cratis.Orleans.Jobs.for_Job.when_a_step_succeeds;
 
 public class with_an_older_generation : given.a_running_job_with_two_steps
 {
-    const string GenerationKey = "Cratis.Orleans.Jobs.Generation";
+    const string GenerationKey = "Cratis.Orleans.Jobs.ReportedGeneration";
 
     void Establish()
     {

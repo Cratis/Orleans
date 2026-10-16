@@ -16,8 +16,9 @@ public abstract partial class Job<TRequest, TJobState>
     /// <returns>True if the outcome is ignored, false if it counts.</returns>
     async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped)
     {
-        // Read and removed first, so the generation never flows into the hooks and stages the outcome leads to.
-        var generation = JobExecutionGeneration.Take();
+        // Read and removed first, so the generation never flows into the hooks and stages the outcome leads to. Only a
+        // generation the step reported counts: one it merely inherited from its job's call says nothing about its run.
+        var generation = JobExecutionGeneration.TakeReported();
 
         // A drain took this step's outcome from the step itself; the step's own report of it counts nothing.
         if (_accountedByDrain.Contains(stepId))
