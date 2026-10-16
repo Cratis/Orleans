@@ -34,6 +34,17 @@ public sealed class DrainingSignals(string database)
     public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
+    /// Gets or sets a value indicating whether the step holds on to its work after observing cancellation until
+    /// <see cref="ReleaseWork"/> is completed.
+    /// </summary>
+    public bool HoldAfterCancellation { get; set; }
+
+    /// <summary>
+    /// Gets the gate a step holding on to its work after cancellation waits on.
+    /// </summary>
+    public TaskCompletionSource ReleaseWork { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the outcome of the checkpoint the step writes once it has been cancelled.
     /// </summary>
     public TaskCompletionSource<Result<ActivationCallbackRejected>> FinalCheckpoint { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

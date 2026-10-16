@@ -71,6 +71,10 @@ public sealed class DrainingStep(
             // Cancellation is how the step is asked to finish; it checkpoints and returns a stopped outcome below.
         }
         signals.Cancelled.TrySetResult();
+        if (signals.HoldAfterCancellation)
+        {
+            await signals.ReleaseWork.Task;
+        }
         signals.FinalCheckpoint.TrySetResult(await Checkpoint(FinalCheckpointMessage));
         return Catch<JobStepResult>.Success(JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult()));
     }
