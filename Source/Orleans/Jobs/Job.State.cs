@@ -70,6 +70,13 @@ public abstract partial class Job<TRequest, TJobState>
 
     bool JobIsPrepared() => State.StatusChanges.Any(change => change.Status is JobStatus.StartingSteps);
 
+    bool StoppedStepsPredateLastRunning()
+    {
+        var statuses = State.StatusChanges.Select(change => change.Status).ToList();
+        var lastStopped = statuses.LastIndexOf(JobStatus.Stopped);
+        return lastStopped >= 0 && statuses.LastIndexOf(JobStatus.Running) > lastStopped && State.Progress.StoppedSteps == 0;
+    }
+
     void StatusChanged(JobStatus status, Exception? exception = null)
     {
         State.StatusChanges.Add(new()

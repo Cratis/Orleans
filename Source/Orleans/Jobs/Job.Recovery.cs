@@ -17,7 +17,10 @@ public abstract partial class Job<TRequest, TJobState>
             return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
         }
 
-        var resumable = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
+        var restartStoppedSteps = !_hasLiveStepTracking && State.Status is JobStatus.Running && StoppedStepsPredateLastRunning();
+        var resumable = restartStoppedSteps
+            ? await GetIdAndGrainReferenceForNonCompletedJobSteps()
+            : await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
         if (_hasLiveStepTracking)
         {
             // Storage and outcome delivery are not atomic: success deletes storage before its report,
@@ -30,6 +33,10 @@ public abstract partial class Job<TRequest, TJobState>
 
         // Reconstruct a cold activation from durable state. A surviving step can still have an outcome queued
         // behind this resume; outcome handlers must ignore it if reconstruction finalizes or clears the job.
+        if (restartStoppedSteps)
+        {
+            _logger.RestartingStepsStoppedBeforeLastResume();
+        }
         _jobStepGrains = resumable;
         if (_jobStepGrains.Count == 0)
         {
