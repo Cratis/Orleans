@@ -64,8 +64,16 @@ builder.AddCratisOrleans(new CratisOrleansOptions
 `Orleans.Providers.MongoDB` has no Orleans 10 release; 9.5.0 is a 9.x binary. Only its cluster membership and
 grain storage are safe on the 10.x runtime. Pointing the 10.x reminder service at its 9.x reminder table
 hangs the first `RegisterOrUpdateReminder` and times out the calling grain - so `AddCratisOrleans` keeps
-reminders on Orleans' own in-memory service in both clustering modes. The job system does not use reminders:
-jobs rehydrate themselves from durable storage at startup, so nothing is lost.
+reminders on Orleans' own in-memory service in both clustering modes. The job system does not use reminders.
+`AddCratisOrleans` requests recovery after the silo becomes Active and when cluster membership reports a dead silo.
+Supply a singleton `IJobsManagerKeys` provider on every silo with all your storage scopes and namespaces: the default
+knows only managers activated on that silo and warns at startup when no host provider is present. Follow the
+[event-store × tenant-namespace example](../concepts/jobs.md#tell-recovery-which-namespaces-exist) for complete
+recovery, including namespaces a surviving silo has never served.
+
+If you configure Orleans directly instead, register the jobs collaborators and storage, then call
+`siloBuilder.AddCratisOrleansJobsRecovery()` from `Cratis.Orleans.Hosting`. Interrupted steps may execute again;
+automatic recovery preserves durable stops rather than treating them as interrupted work.
 
 ## Disabling the silo
 

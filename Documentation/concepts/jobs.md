@@ -166,6 +166,73 @@ values on the job instead.
 
 ## Rehydration
 
-When the silo starts, the jobs manager rehydrates every job that had not finished, and each resumes from its
-persisted steps. Reminders play no part in this - which is why the hosting setup can keep reminders on the
-in-memory service without costing the job system anything (see [Host the silo](../how-to/host-the-silo.md)).
+A crashed silo leaves durable `Running` state behind, not a live performer. `AddCratisOrleans` installs a recovery
+participant that asks the jobs managers to rehydrate after the silo becomes Active. When Orleans declares a
+cluster member Dead, the oldest Active silo requests another recovery pass. The election uses the silo's generation
+and breaks ties by address. Briefly disagreeing membership views can trigger duplicate passes; live steps are
+checked rather than started twice. Reminders play no part in recovery.
+
+Recovery preserves the original job id, scope, namespace and current stage. It starts only unfinished prepared
+steps; successful steps remain completed. An interrupted step may execute again, so protect external effects with
+idempotency or receiver-owned deduplication. A durable `Stop()` remains stopped: automatic recovery excludes stopped
+jobs and stopped steps. Explicit `Resume()` is still how you resume a stopped job.
+
+A job interrupted during `PreparingJob` or `PreparingSteps` cannot safely resume an unfinished plan. Without live
+preparation in its activation, `Resume()` fails with `CannotResumeJobError.JobIsNotPrepared`; it does not claim that
+work is running or prepare a replacement plan. Inspect or remove the job through your application's job management.
+
+### Tell recovery which namespaces exist
+
+Storage scopes and namespaces are host-owned coordinates. Recovery cannot infer them from arbitrary database-name
+resolvers. Its default `JobsManagerKeys` provider remembers only managers activated on this silo. It logs a startup
+warning when no host provider is present: recovery is incomplete for a survivor that never served a key, and the
+in-memory catalog does not survive a process restart.
+
+Provide a singleton `IJobsManagerKeys` implementation on every silo for complete recovery. Providers are discovered
+by convention, combined with the default, and duplicate keys are recovered once per pass. They run outside any
+request scope: never inject tenant-scoped databases, request-scoped services, or a current-user value. A provider
+failure is logged without preventing recovery for other providers. There is no periodic sweep by default;
+`IJobsManager.Rehydrate()` remains available for an explicit pass.
+
+For a Studio-shaped host, the catalog is the set of **event stores × tenant namespaces**. This example uses a
+host-owned configuration snapshot; a dynamic host can instead enumerate its authoritative catalog in `GetKeys`.
+The names here are application types, not additional Orleans APIs:
+
+```csharp
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Cratis.Orleans.Jobs;
+
+public sealed record JobRecoveryCatalog(
+    IReadOnlyDictionary<string, IReadOnlyList<string>> TenantNamespacesByEventStore);
+
+public sealed class StudioJobsManagerKeys(JobRecoveryCatalog catalog) : IJobsManagerKeys
+{
+    public Task<IEnumerable<JobsManagerKey>> GetKeys(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var keys = catalog.TenantNamespacesByEventStore.SelectMany(store =>
+            store.Value.Select(tenantNamespace => new JobsManagerKey(store.Key, tenantNamespace)));
+        return Task.FromResult(keys);
+    }
+}
+```
+
+In your existing host setup, before `builder.Build()`, register the application snapshot and provider as singletons:
+
+```csharp
+builder.Services.AddSingleton(new JobRecoveryCatalog(
+    new Dictionary<string, IReadOnlyList<string>>
+    {
+        ["studio"] = new[] { "tenant-a", "tenant-b" },
+        ["verification"] = new[] { "tenant-a" }
+    }));
+builder.Services.AddSingleton<StudioJobsManagerKeys>();
+```
+
+These are the actual scope/namespace pairs passed to `GetJobsManager`, not database names. Include a default
+namespace explicitly if your application uses one. For a separately configured silo, call
+`ISiloBuilder.AddCratisOrleansJobsRecovery()` from `Cratis.Orleans.Hosting` after registering the job system and
+storage; `AddCratisOrleans` already does this (see [Host the silo](../how-to/host-the-silo.md)).
