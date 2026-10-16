@@ -183,7 +183,10 @@ copy anything the job must retain into job state.
 
 `PerformStep` receives a deep copy of the step's state, taken when the step is marked `Running`. That copy
 does not see later writes to the step's state, and changing it does not persist anything. To change the
-state while the work runs, use an activation callback (see the next section).
+state while the work runs, use an activation callback (see the next section). The copy comes from Orleans'
+`DeepCopier<TState>`, which every silo registers through its serializer. A test host without one, such as an
+Orleans.TestKit silo, must register `DeepCopier<TState>` itself; otherwise the step fails with a message that
+names the missing copier.
 
 Since v1.16.2, the framework reports a prepared step stopped before or during its work to the job exactly
 once. Deactivation without an explicit stop leaves scheduled work recoverable for resume instead of
@@ -265,27 +268,37 @@ has started, before anything else happens. One deadline covers the whole wait:
 
 | Trigger | Waits up to | Then |
 | --- | --- | --- |
-| `IJobStep.Stop` | `JobsOptions.StepStopTimeout` (10 seconds) | Reports exactly one outcome to the job and answers `Success` |
-| The job stops or is removed | `JobsOptions.StepStopTimeout` | Same as `Stop`, but the job is answered as soon as cancellation is requested, so it never waits on its own step |
+| `IJobStep.Stop` | `JobsOptions.StepStopTimeout` (10 seconds) | Starts reporting exactly one outcome to the job and answers `Success`; after the deadline it answers `StopTimedOut` and reports the outcome once the work settles |
+| The job stops or is removed | Nothing: the job is answered as soon as cancellation is requested, so it never waits on its own step | Reports exactly one outcome once the work settles, and a removed step is then removed from storage |
 | Deactivation, such as a graceful silo shutdown | Orleans' deactivation timeout | Writes no final status and reports nothing: the step stays `Scheduled` or `Running` for recovery |
+
+A second stop, or a removal, that arrives while a stop is still in progress joins it: the job still hears
+about the step once.
 
 The outcome is the one the work produced. If the work finished successfully just as the stop came in, the
 step reports success, not a stop. The order of writes is unchanged: a failure or stop is reported to the job
 first and persisted once the job accepts it, and success is persisted first and then reported.
 
 :::caution[A timed-out stop is not quiescent]
-When the work does not settle in time, `Stop` answers `JobStepError.StopTimedOut`, records nothing and
-reports nothing. The work may still be running; from then on its callbacks are refused with `Closed`. I/O
-it had already issued cannot be called back. Treat the step as not stopped, and keep `StepStopTimeout` below
-the Orleans response timeout so the caller sees this answer rather than a timed-out call.
+When the work does not settle in time, `Stop` answers `JobStepError.StopTimedOut` and has recorded nothing
+yet. The work may still be running; from then on its callbacks are refused with `Closed`, and I/O it had
+already issued cannot be called back. The stop goes on in the background: once the work settles, the step
+reports itself stopped and records it, exactly once. Treat a timed-out step as not stopped until then, and
+keep `StepStopTimeout` below the Orleans response timeout so the caller sees this answer rather than a
+timed-out call.
 :::
 
 Some limits remain:
 
 - A step deactivated while its job keeps running is not started again until recovery or `Resume()`, as
   before.
-- A report already sent to the job when the activation deactivates is not withdrawn. The step does not
-  persist anything for it afterwards.
+- A report already sent to the job when the activation deactivates is not withdrawn, and the step does not
+  persist anything for it afterwards. After a graceful shutdown the job may therefore have accepted a stop
+  or failure while the step's stored status is still `Running`; recovery runs the step again. A later release
+  makes this exact with execution tokens.
+- A step whose work still calls its own grain reference instead of `TryInvokeOnActivation` makes
+  deactivation wait for that work, up to Orleans' deactivation timeout, because the held call cannot complete
+  until the activation is gone. Move such calls to `TryInvokeOnActivation`.
 - A start is refused with `StartJobStepError.AlreadyStarted` while the previous run's work, callbacks or
   outcome report are still in flight.
 
