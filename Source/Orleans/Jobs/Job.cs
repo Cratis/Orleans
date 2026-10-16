@@ -192,9 +192,16 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return resumedStages;
             }
 
-            if (JobIsRunning())
+            if (State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps)
             {
-                return ResumeJobSuccess.JobAlreadyRunning;
+                return _startStepsTimer is not null
+                    ? ResumeJobSuccess.JobAlreadyRunning
+                    : Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
+            }
+
+            if (State.Status is JobStatus.Running or JobStatus.StartingSteps)
+            {
+                return await ResumeInterruptedSteps();
             }
 
             if (State.Status is JobStatus.CompletedSuccessfully or JobStatus.CompletedWithFailures)
@@ -241,32 +248,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             State.Progress.StoppedSteps = 0;
             _ = await WriteStatusChanged(JobStatus.Running);
             await OnBeforeResumingJobSteps();
-            var grainId = this.GetGrainId();
-
-            var startJobStepResults = new List<(JobStepId Key, Result<StartJobStepError> Result, IJobStep Grain)>();
-            foreach (var chunk in StepsInCurrentStage().Chunk(MaxConcurrentJobStepStartups))
-            {
-                var tasks = chunk.Select(async jobStepIdAndGrain =>
-                {
-                    var result = await jobStepIdAndGrain.Value.Start(grainId);
-                    return (jobStepIdAndGrain.Key, result, jobStepIdAndGrain.Value);
-                });
-                startJobStepResults.AddRange(await Task.WhenAll(tasks));
-            }
-            var failedSteps = new List<JobStepId>();
-
-            foreach (var (id, result, grain) in startJobStepResults)
-            {
-                var failedStep = await HandleResumeJobStepResult(id, result, grain);
-                if (failedStep)
-                {
-                    failedSteps.Add(id);
-                }
-            }
-
-            return failedSteps.Count == 0
-                ? ResumeJobSuccess.Success
-                : Result<ResumeJobSuccess, ResumeJobError>.Failed(new FailedResumingJobSteps(failedSteps));
+            return await ResumeCurrentStage(reportAlreadyRunning: false);
         }
         catch (Exception ex)
         {

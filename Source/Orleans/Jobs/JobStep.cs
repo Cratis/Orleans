@@ -34,7 +34,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
     IJobStep<TRequest, TResult, TState> _thisJobStep = null!;
     CancellationTokenSource? _cancellationTokenSource = new();
     IJob _job = new NullJob();
-    bool _currentlyRunning;
+    bool _starting;
     volatile bool _stopRequested;
     JobStepCheckpointDebounce _checkpoints = new(1);
 
@@ -140,6 +140,11 @@ public abstract class JobStep<TRequest, TResult, TState>(
     public async Task<Result<StartJobStepError>> Start(GrainId jobGrainId)
     {
         using var scope = logger.BeginJobStepScope(State);
+        if (_starting)
+        {
+            return StartJobStepError.AlreadyStarted;
+        }
+        _starting = true;
         try
         {
             if (!State.IsPrepared)
@@ -147,17 +152,14 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 return StartJobStepError.NotPrepared;
             }
 
+            // Reserve before yielding: Start may interleave with another Start or with a failure report
+            // waiting on the parent. Neither persisted status nor a flag that outlives the worker is liveness.
+            if (await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running)
+            {
+                return StartJobStepError.AlreadyStarted;
+            }
             switch (State.Status)
             {
-                // The persisted status alone cannot answer "is this step running?": a step that was
-                // Scheduled or Running when its process died is persisted exactly like one running
-                // right now, but the background task doing the work died with the process. Only when
-                // this activation actually holds in-flight work is a second Start a double start -
-                // otherwise the step must start over, or it stays Scheduled forever, wedging its job
-                // and every step queued behind it on the throttle. Performing a step twice is part of
-                // its contract; never performing it is not.
-                case JobStepStatus.Scheduled or JobStepStatus.Running when _currentlyRunning:
-                    return StartJobStepError.AlreadyStarted;
                 case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
                     return StartJobStepError.Completed;
                 case JobStepStatus.Failed:
@@ -167,19 +169,25 @@ public abstract class JobStep<TRequest, TResult, TState>(
             _thisJobStep = GetReferenceToSelf();
             _job = GetJob(jobGrainId);
 
+            // Persist the reservation before dispatch: this interleaving entry point must not race a
+            // newly dispatched worker's status writes. _starting excludes another Start during this write.
+            if (!(await WriteStatusChange(JobStepStatus.Scheduled)).IsSuccess)
+            {
+                return StartJobStepError.Unknown;
+            }
+
             // PerformWork owns cancellation reporting; the worker must not skip it after scheduling.
             var scheduledWork = await Start(CancellationToken.None);
-            if (scheduledWork)
-            {
-                _currentlyRunning = true;
-                _ = await WriteStatusChange(JobStepStatus.Scheduled);
-            }
             return scheduledWork ? Result.Success<StartJobStepError>() : StartJobStepError.AlreadyStarted;
         }
         catch (Exception ex)
         {
             logger.FailedUnexpectedly(ex);
             return StartJobStepError.Unknown;
+        }
+        finally
+        {
+            _starting = false;
         }
     }
 
@@ -228,12 +236,16 @@ public abstract class JobStep<TRequest, TResult, TState>(
             }
 
             logger.Stopping();
+
+            // Cancellation can complete the worker before CancelAsync returns; that worker still owns
+            // its stop report. Capture ownership before canceling instead of reporting the stop twice.
+            var workerOwnsStop = _starting || await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running;
             _stopRequested = true;
             var cts = _cancellationTokenSource;
             _cancellationTokenSource = null;
             await (cts?.CancelAsync() ?? Task.CompletedTask);
             cts?.Dispose();
-            if (_currentlyRunning)
+            if (workerOwnsStop)
             {
                 return Result.Success<JobStepError>();
             }

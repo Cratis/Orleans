@@ -24,7 +24,8 @@ public interface IJob : IGrainWithGuidCompoundKey
     /// </summary>
     /// <returns>Awaitable task.</returns>
     /// <remarks>
-    /// This method won't do anything if the job is already running.
+    /// A persisted running status does not prove live work. Unfinished prepared steps are checked and restarted
+    /// if their activation lost its performer; live steps are not restarted. Interrupted preparation fails explicitly.
     /// </remarks>
     Task<Result<ResumeJobSuccess, ResumeJobError>> Resume();
 

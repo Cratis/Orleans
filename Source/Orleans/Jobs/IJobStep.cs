@@ -40,8 +40,11 @@ public interface IJobStep : IGrainWithGuidCompoundKey
     /// <remarks>
     /// Starting is idempotent. <see cref="StartJobStepError.AlreadyStarted"/> and <see cref="StartJobStepError.Completed"/>
     /// report that the work is already in flight or already done - they are outcomes of a repeated start, not failures,
-    /// and the step still reports its own completion to the job.
+    /// and the step still reports its own completion to the job. This entry point can interleave with an outcome
+    /// report waiting on the job, so a job awaiting Start cannot deadlock with that report. Implementations must
+    /// reserve live work before yielding and must not await a callback to the job from this entry point.
     /// </remarks>
+    [AlwaysInterleave]
     Task<Result<StartJobStepError>> Start(GrainId jobGrainId);
 
     /// <summary>
