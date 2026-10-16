@@ -1,6 +1,8 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Orleans.Workers;
+
 namespace Cratis.Orleans.Jobs.Integration.Recovery;
 
 [GrainType("cratis-integration-crash-recovery-step")]
@@ -15,6 +17,16 @@ public sealed class RecoveryStep(
     protected override Task<Result<PrepareJobStepError>> PrepareStep(RecoveryRequest request) => Task.FromResult(Result<PrepareJobStepError>.Success());
     protected override ValueTask InitializeState(RecoveryRequest request) => ValueTask.CompletedTask;
     protected override ValueTask<string?> CreateCancelledResultFromCurrentState(JobStepState currentState) => ValueTask.FromResult<string?>(null);
+
+    protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
+    {
+        var result = await base.PerformWork();
+        if (result.Error is PerformWorkError.Cancelled)
+        {
+            signals.StepStopped.TrySetResult();
+        }
+        return result;
+    }
 
     protected override async Task<Catch<JobStepResult>> PerformStep(JobStepState currentState, CancellationToken cancellationToken)
     {
