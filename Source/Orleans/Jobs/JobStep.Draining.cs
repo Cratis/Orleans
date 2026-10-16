@@ -20,14 +20,14 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     public async Task<Result<JobStepError>> Stop(bool removing)
     {
         using var scope = logger.BeginJobStepScope(State);
-        return await StopWithinDeadline(removing);
+        return await StopWithinDeadline(removing, JobExecutionGeneration.Take());
     }
 
     /// <inheritdoc/>
-    public Task OnJobStopped() => AcceptStop(false);
+    public Task OnJobStopped() => AcceptStop(false, JobExecutionGeneration.Take());
 
     /// <inheritdoc/>
-    public Task OnJobRemoved() => AcceptStop(true);
+    public Task OnJobRemoved() => AcceptStop(true, JobExecutionGeneration.Take());
 
     static async Task<bool> Drained(JobStepRun run, CancellationToken deadline) =>
         await Settled(run.Startup, deadline) &&
@@ -52,22 +52,22 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
     }
 
-    Task AcceptStop(bool removing)
+    Task AcceptStop(bool removing, long? generation)
     {
         // The job is notified from inside its own stop and cannot take the step's report until it returns, so
         // accept once cancellation is requested and let the stop finish on the activation.
-        _ = StopWithinDeadline(removing);
+        _ = StopWithinDeadline(removing, generation);
         return Task.CompletedTask;
     }
 
-    async Task<Result<JobStepError>> StopWithinDeadline(bool removing)
+    async Task<Result<JobStepError>> StopWithinDeadline(bool removing, long? generation)
     {
         // The deadline starts before anything is waited for: the run, the gate, the work and its callbacks.
         using var deadline = new CancellationTokenSource(_stopTimeout);
-        return await StopRun(removing, deadline.Token);
+        return await StopRun(removing, generation, deadline.Token);
     }
 
-    async Task<Result<JobStepError>> StopRun(bool removing, CancellationToken deadline)
+    async Task<Result<JobStepError>> StopRun(bool removing, long? generation, CancellationToken deadline)
     {
         // A late notification must not replace a terminal outcome or report a second outcome to the job.
         if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
@@ -84,7 +84,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         logger.Stopping();
 
         // Nothing here yields until the run carries its stop, so no start or second stop can see it settled.
-        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun();
+        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
         run.BeginDrain(removing ? JobStepRunPhase.Removing : JobStepRunPhase.Stopping);
         run.Stop ??= FinishStop(run);
 
@@ -100,9 +100,10 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         return JobStepError.StopTimedOut;
     }
 
-    JobStepRun StartStopOnlyRun()
+    JobStepRun StartStopOnlyRun(long? generation)
     {
-        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current);
+        // A stop with no run to stop reports for the execution that asked for it.
+        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current, generation);
         run.Started();
         _run = run;
         return run;
@@ -215,6 +216,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             return;
         }
 
+        // The delivery inherits the context of whatever started it, so it always states the run's own generation.
+        using var generation = JobExecutionGeneration.Carry(run.Generation);
         try
         {
             if (outcome.TryGetError(out var error))

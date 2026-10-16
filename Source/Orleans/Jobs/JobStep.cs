@@ -161,40 +161,10 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     {
         using var scope = logger.BeginJobStepScope(State);
 
-        // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
-        // on the parent. A run whose work, callbacks or delivery have not settled is still live.
-        if (_run is { IsSettled: false })
-        {
-            return StartJobStepError.AlreadyStarted;
-        }
-        if (!State.IsPrepared)
-        {
-            return StartJobStepError.NotPrepared;
-        }
-        switch (State.Status)
-        {
-            case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
-                return StartJobStepError.Completed;
-            case JobStepStatus.Failed:
-                return StartJobStepError.UnrecoverableFailedState;
-        }
+        // Read and removed before anything else, so the generation never flows into the work or its calls.
+        var generation = JobExecutionGeneration.Take();
 
-        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current);
-        _run = run;
-        _job = GetJob(jobGrainId);
-        try
-        {
-            return await DispatchPreparedWork(run);
-        }
-        catch (Exception ex)
-        {
-            logger.FailedUnexpectedly(ex);
-            return StartJobStepError.Unknown;
-        }
-        finally
-        {
-            run.Started();
-        }
+        return await StartRun(jobGrainId, generation);
     }
 
     /// <inheritdoc/>
@@ -381,6 +351,44 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// </remarks>
     /// <returns>The result.</returns>
     protected abstract ValueTask<TResult?> CreateCancelledResultFromCurrentState(TState currentState);
+
+    async Task<Result<StartJobStepError>> StartRun(GrainId jobGrainId, long? generation)
+    {
+        // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
+        // on the parent. A run whose work, callbacks or delivery have not settled is still live.
+        if (_run is { IsSettled: false })
+        {
+            return StartJobStepError.AlreadyStarted;
+        }
+        if (!State.IsPrepared)
+        {
+            return StartJobStepError.NotPrepared;
+        }
+        switch (State.Status)
+        {
+            case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
+                return StartJobStepError.Completed;
+            case JobStepStatus.Failed:
+                return StartJobStepError.UnrecoverableFailedState;
+        }
+
+        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current, generation);
+        _run = run;
+        _job = GetJob(jobGrainId);
+        try
+        {
+            return await DispatchPreparedWork(run);
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
+            return StartJobStepError.Unknown;
+        }
+        finally
+        {
+            run.Started();
+        }
+    }
 
     async Task<Result<StartJobStepError>> DispatchPreparedWork(JobStepRun run)
     {

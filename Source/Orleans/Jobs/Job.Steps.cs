@@ -330,7 +330,11 @@ public abstract partial class Job<TRequest, TJobState>
         var failedJobStepIds = new List<JobStepId>();
         foreach (var chunk in jobStepGrains.Chunk(MaxConcurrentJobStepStartups))
         {
-            var startResults = await Task.WhenAll(chunk.Select(idAndGrain => TryStartJobStep(idAndGrain.Key, idAndGrain.Value, grainId)));
+            (JobStepId Id, Result<StartJobStepError> Result, Exception? Exception)[] startResults;
+            using (JobExecutionGeneration.Carry(ExecutionGeneration()))
+            {
+                startResults = await Task.WhenAll(chunk.Select(idAndGrain => TryStartJobStep(idAndGrain.Key, idAndGrain.Value, grainId)));
+            }
 
             foreach (var (id, startResult, exception) in startResults)
             {

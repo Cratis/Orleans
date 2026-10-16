@@ -64,8 +64,12 @@ public abstract partial class Job<TRequest, TJobState>
         var allLive = true;
         foreach (var chunk in steps.Chunk(MaxConcurrentJobStepStartups))
         {
-            var results = await Task.WhenAll(chunk.Select(async step =>
-                (step.Key, Grain: step.Value, Result: await step.Value.Start(this.GetGrainId()))));
+            (JobStepId Key, IJobStep Grain, Result<StartJobStepError> Result)[] results;
+            using (JobExecutionGeneration.Carry(ExecutionGeneration()))
+            {
+                results = await Task.WhenAll(chunk.Select(async step =>
+                    (step.Key, Grain: step.Value, Result: await step.Value.Start(this.GetGrainId()))));
+            }
             foreach (var (id, grain, result) in results)
             {
                 allLive &= IsAlreadyStarted(result);

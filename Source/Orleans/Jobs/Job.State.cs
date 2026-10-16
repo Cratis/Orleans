@@ -66,9 +66,59 @@ public abstract partial class Job<TRequest, TJobState>
         }
     }
 
+    /// <summary>
+    /// Changes the status and writes it, undoing the change in memory when the write fails.
+    /// </summary>
+    /// <param name="status">The <see cref="JobStatus"/> to change to.</param>
+    /// <returns>True if the change is durable, false if it was undone.</returns>
+    /// <remarks>
+    /// Used where what follows must only happen on a durable change - such as starting steps in an execution whose
+    /// beginning a restart would not find.
+    /// </remarks>
+    async Task<bool> TryWriteStatusChanged(JobStatus status)
+    {
+        var previousStatus = State.Status;
+        var previousChanges = State.StatusChanges.Count;
+        if ((await WriteStatusChanged(status)).IsSuccess)
+        {
+            return true;
+        }
+
+        while (State.StatusChanges.Count > previousChanges)
+        {
+            State.StatusChanges.RemoveAt(State.StatusChanges.Count - 1);
+        }
+        State.Status = previousStatus;
+        return false;
+    }
+
     bool JobIsRunning() => State.Status is JobStatus.Running or JobStatus.PreparingJob or JobStatus.PreparingSteps or JobStatus.StartingSteps;
 
     bool JobIsPrepared() => State.StatusChanges.Any(change => change.Status is JobStatus.StartingSteps);
+
+    /// <summary>
+    /// Gets the generation of the job's current execution.
+    /// </summary>
+    /// <returns>The 1-based position in the status history of the change that began the current execution, or 0 when the job never started.</returns>
+    /// <remarks>
+    /// An execution begins when the job starts preparing, and when it runs again straight after a stop or a removal.
+    /// Recovering a job left running continues its execution, because its live steps belong to it. Every release
+    /// appends to and keeps the status history, so the generation survives a write by a release that does not know it.
+    /// </remarks>
+    long ExecutionGeneration()
+    {
+        var changes = State.StatusChanges;
+        for (var position = changes.Count; position > 0; position--)
+        {
+            var status = changes[position - 1].Status;
+            if (status is JobStatus.PreparingJob ||
+                (status is JobStatus.Running && position > 1 && changes[position - 2].Status is JobStatus.Stopped or JobStatus.Removing))
+            {
+                return position;
+            }
+        }
+        return 0;
+    }
 
     bool StoppedStepsPredateLastRunning()
     {
