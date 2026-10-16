@@ -247,7 +247,8 @@ no part in recovery.
 Recovery preserves the original job id, scope, namespace and current stage. It starts only unfinished prepared
 steps; successful steps remain completed. An interrupted step may execute again, so protect external effects with
 idempotency or receiver-owned deduplication. A durable `Stop()` remains stopped: automatic recovery excludes stopped
-jobs and stopped steps. Explicit `Resume()` is still how you resume a stopped job.
+jobs and only restarts stopped steps when recovering an interrupted explicit `Resume()` with no later accepted step stop.
+Explicit `Resume()` is still how you resume a stopped job.
 
 A job interrupted during `PreparingJob` or `PreparingSteps` cannot safely resume an unfinished plan. Without live
 preparation in its activation, `Resume()` fails with `CannotResumeJobError.JobIsNotPrepared`; it does not claim that
