@@ -116,6 +116,12 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler, long? generat
     public bool DeliveryClaimed { get; private set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether a drain persisted the outcome. Its delivery then writes nothing: the
+    /// job that drained the step has taken the outcome from the drain. Only changed under the step's gate.
+    /// </summary>
+    public bool OutcomePersisted { get; set; }
+
+    /// <summary>
     /// Gets a task that completes when no admitted callback is running.
     /// </summary>
     public Task CallbacksSettled

@@ -82,6 +82,15 @@ public static partial class JobStepLogMessages
     [LoggerMessage(LogLevel.Debug, "Job step skipped writing status {Status} for a run the activation no longer owns")]
     internal static partial void SkippedWriteForEndedRun(this ILogger<IJobStep> logger, JobStepStatus status);
 
+    [LoggerMessage(LogLevel.Debug, "Job step skipped writing status {Status} for a run whose outcome a drain persisted")]
+    internal static partial void SkippedWriteForDrainedRun(this ILogger<IJobStep> logger, JobStepStatus status);
+
+    [LoggerMessage(LogLevel.Debug, "Job step skipped reporting an outcome a drain already handed to its job")]
+    internal static partial void SkippedReportForDrainedRun(this ILogger<IJobStep> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job step was not drained within {Timeout}; its stop goes on")]
+    internal static partial void NotDrainedInTime(this ILogger<IJobStep> logger, TimeSpan timeout);
+
     [LoggerMessage(LogLevel.Information, "Job step defers its start in execution {Generation} until the stop of its earlier run has settled")]
     internal static partial void DeferringStartUntilStopSettles(this ILogger<IJobStep> logger, long generation);
 

@@ -36,7 +36,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     [PersistentState(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps)]
     IPersistentState<TState> state,
     IJobStepThrottle throttle,
-    ILogger<JobStep<TRequest, TResult, TState>> logger) : GrainWithBackgroundTask<TRequest, JobStepResult>, IJobStep<TRequest, TResult, TState>, IJobObserver, IDisposable
+    ILogger<JobStep<TRequest, TResult, TState>> logger) : GrainWithBackgroundTask<TRequest, JobStepResult>, IJobStep<TRequest, TResult, TState>, IJobObserver, IJobStepDrain, IDisposable
     where TState : JobStepState
 {
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Work that outlived a timed-out stop may still release the gate; it holds no wait handle to free.")]
@@ -483,6 +483,13 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
             {
                 logger.SkippedWriteForEndedRun(status);
                 return Task.FromResult<Result<JobStepError>>(JobStepError.Unknown);
+            }
+
+            // A drained outcome is already persisted; only a removal still follows it.
+            if (run is { OutcomePersisted: true } && status is not JobStepStatus.Removing)
+            {
+                logger.SkippedWriteForDrainedRun(status);
+                return Task.FromResult(Result<JobStepError>.Success());
             }
             return WriteStatusChange(status, exceptionMessages, exceptionStackTrace);
         });
