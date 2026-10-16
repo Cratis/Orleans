@@ -300,7 +300,9 @@ Some limits remain:
   deactivation wait for that work, up to Orleans' deactivation timeout, because the held call cannot complete
   until the activation is gone. Move such calls to `TryInvokeOnActivation`.
 - A start is refused with `StartJobStepError.AlreadyStarted` while the previous run's work, callbacks or
-  outcome report are still in flight.
+  outcome report are still in flight. A job resumed while a step's stop is still pending therefore treats
+  that step as live, and the step's late stop report then reaches the running job. A later release fences
+  this with execution tokens.
 
 ## Deliver outside input to the job, not its steps
 
