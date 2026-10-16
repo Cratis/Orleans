@@ -12,6 +12,7 @@ public sealed class DrainingSignals(string database)
 {
     int _writes;
     int _activations;
+    int _entries;
 
     /// <summary>
     /// Gets the database the cluster's jobs land in.
@@ -29,6 +30,21 @@ public sealed class DrainingSignals(string database)
     public TaskCompletionSource<SiloAddress> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
+    /// Gets or sets a value indicating whether the step succeeds at once when its work is entered again.
+    /// </summary>
+    public bool SucceedWhenEnteredAgain { get; set; }
+
+    /// <summary>
+    /// Gets the signal that the step's work was entered a second time.
+    /// </summary>
+    public TaskCompletionSource EnteredAgain { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets the signal that the job ran its completion callback.
+    /// </summary>
+    public TaskCompletionSource JobCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the signal that the step's work observed cancellation.
     /// </summary>
     public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -38,6 +54,22 @@ public sealed class DrainingSignals(string database)
     /// <see cref="ReleaseWork"/> is completed.
     /// </summary>
     public bool HoldAfterCancellation { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the step holds its final checkpoint callback open, on its activation,
+    /// until <see cref="ReleaseWork"/> is completed.
+    /// </summary>
+    public bool HoldInFinalCheckpoint { get; set; }
+
+    /// <summary>
+    /// Gets the signal that the step is inside its final checkpoint callback.
+    /// </summary>
+    public TaskCompletionSource InFinalCheckpoint { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets the signal that a step activation deactivated.
+    /// </summary>
+    public TaskCompletionSource Deactivated { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
     /// Gets the gate a step holding on to its work after cancellation waits on.
@@ -83,6 +115,25 @@ public sealed class DrainingSignals(string database)
     /// Records a step state write.
     /// </summary>
     public void Wrote() => Interlocked.Increment(ref _writes);
+
+    /// <summary>
+    /// Gets the number of times the step's work was entered.
+    /// </summary>
+    public int Entries => Volatile.Read(ref _entries);
+
+    /// <summary>
+    /// Records that the step's work was entered.
+    /// </summary>
+    /// <returns>True if the work was entered before.</returns>
+    public bool Enter()
+    {
+        if (Interlocked.Increment(ref _entries) == 1)
+        {
+            return false;
+        }
+        EnteredAgain.TrySetResult();
+        return true;
+    }
 
     /// <summary>
     /// Records a step activation.

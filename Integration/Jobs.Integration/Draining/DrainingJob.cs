@@ -31,6 +31,13 @@ public sealed class DrainingJob(DrainingSignals signals) : Job<DrainingRequest, 
     }
 
     /// <inheritdoc/>
+    protected override Task OnAllStepsCompleted()
+    {
+        signals.JobCompleted.TrySetResult();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
     protected override Task OnStopped()
     {
         signals.JobStopped.TrySetResult();
