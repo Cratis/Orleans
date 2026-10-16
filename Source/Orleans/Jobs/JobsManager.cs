@@ -55,6 +55,7 @@ public class JobsManager(
     {
         this.GetPrimaryKeyLong(out var key);
         _key = key!;
+        ServiceProvider.GetService<JobsManagerKeys>()?.Remember(_key);
         var applicationLifetime = ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
         _rehydrationCancellation = CancellationTokenSource.CreateLinkedTokenSource(applicationLifetime.ApplicationStopping);
 

@@ -42,8 +42,9 @@ public static class CratisOrleansSiloBuilderExtensions
     /// <c lang="csharp">RegisterOrUpdateReminder</c> never completes, the calling grain's request times out, the reminder row is
     /// never written, and no reminder-backed grain ever ticks. Orleans' own in-memory reminder service is 10.x end
     /// to end and works in both modes, so it is used unconditionally. Reminders then do not survive a full cluster
-    /// restart - which costs nothing for the job system, whose jobs rehydrate themselves from durable state on
-    /// every start anyway.
+    /// restart. The jobs recovery participant rehydrates durable jobs after activation and member failure, for
+    /// every key supplied by singleton IJobsManagerKeys providers. The default only knows keys seen on this silo;
+    /// hosts supply a complete key catalog to recover namespaces this silo has never served.
     /// </para>
     /// </remarks>
     public static WebApplicationBuilder AddCratisOrleans(this WebApplicationBuilder builder, CratisOrleansOptions? options = default)
@@ -84,6 +85,7 @@ public static class CratisOrleansSiloBuilderExtensions
             silo.Services.TryAddSingleton<IJobTypes, JobTypes>();
             silo.Services.TryAddSingleton<IJobStepThrottle, JobStepThrottle>();
             silo.Services.TryAddSingleton<IOptions<JobsOptions>>(_ => Options.Create(new JobsOptions()));
+            silo.AddCratisOrleansJobsRecovery();
 
             silo.UseMongoDBClient(options.ConnectionString);
 
@@ -118,5 +120,19 @@ public static class CratisOrleansSiloBuilderExtensions
         });
 
         return builder;
+    }
+
+    /// <summary>
+    /// Adds automatic recovery of interrupted jobs to a separately configured silo.
+    /// </summary>
+    /// <param name="silo">The silo builder.</param>
+    /// <returns>The silo builder for chaining.</returns>
+    public static ISiloBuilder AddCratisOrleansJobsRecovery(this ISiloBuilder silo)
+    {
+        silo.Services.TryAddSingleton<ITypes>(_ => new Cratis.Types.Types());
+        silo.Services.TryAddSingleton<JobsManagerKeys>();
+        silo.Services.TryAddTransient<IInstancesOf<IJobsManagerKeys>, InstancesOf<IJobsManagerKeys>>();
+        silo.Services.TryAddEnumerable(ServiceDescriptor.Singleton<ILifecycleParticipant<ISiloLifecycle>, JobsRecovery>());
+        return silo;
     }
 }
