@@ -23,7 +23,6 @@ public class with_a_timeout_above_half_the_response_timeout : given.a_running_jo
 
     async Task Because() => await _job.StopAndDrain(TimeSpan.FromMinutes(10));
 
-    // The default Orleans response timeout is 30 seconds: half of it less a tenth.
     [Fact] void should_wait_at_most_well_within_the_response_timeout() => _timeouts.ShouldEachConformTo(_ => _ <= TimeSpan.FromSeconds(12));
     [Fact] void should_wait() => _timeouts.ShouldEachConformTo(_ => _ > TimeSpan.Zero);
 }

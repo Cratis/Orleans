@@ -13,7 +13,7 @@ public class and_the_performer_died : given.a_job_step_left_scheduled_by_a_dead_
 
     [Fact] void should_be_drained() => _result.Drained.ShouldBeTrue();
     [Fact] void should_answer_stopped() => _result.Status.ShouldEqual(JobStepStatus.Stopped);
-    [Fact] void should_answer_the_result_from_the_checkpoint() => _result.Outcome!.TryGetError(out var error).ShouldBeTrue();
+    [Fact] void should_answer_the_result_from_the_checkpoint() => _result.Outcome!.TryGetError(out _).ShouldBeTrue();
     [Fact] void should_persist_the_step_as_stopped() => _persistedState.Status.ShouldEqual(JobStepStatus.Stopped);
     [Fact] void should_not_perform_any_work() => _jobStep.WorkRuns.ShouldEqual(0);
 

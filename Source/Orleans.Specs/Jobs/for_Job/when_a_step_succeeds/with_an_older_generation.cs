@@ -1,8 +1,6 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using Moq;
-
 namespace Cratis.Orleans.Jobs.for_Job.when_a_step_succeeds;
 
 public class with_an_older_generation : given.a_running_job_with_two_steps

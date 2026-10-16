@@ -5,8 +5,11 @@ namespace Cratis.Orleans.Jobs.for_Job.when_deriving_the_generation;
 
 public class from_state_written_by_an_older_release : given.a_job_whose_steps_report_the_generation_they_are_started_in
 {
-    // An older release resumed the job after a stop; it only appended to the status history.
-    void Establish() => WithStatusHistory(JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Running, JobStatus.Stopped, JobStatus.Running);
+    void Establish()
+    {
+        // An older release resumed the job after a stop; it only appended to the status history.
+        WithStatusHistory(JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Running, JobStatus.Stopped, JobStatus.Running);
+    }
 
     Task Because() => _job.Resume();
 
