@@ -26,6 +26,7 @@ public abstract partial class Job<TRequest, TJobState>
             return Result.Success<JobError>();
         }
         _logger.StepSuccessfullyCompleted(stepId);
+        OutcomeCounted(stepId, succeeded: true);
         State.Progress.SuccessfulSteps++;
         CountStepOutcomeInStage(stepId, succeeded: true);
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -48,11 +49,12 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if (await IgnoreStepOutcome(stepId, stopped: false))
+        if (await IgnoreStepOutcome(stepId, stopped: false, failed: true))
         {
             return Result.Success<JobError>();
         }
         _logger.StepFailed(stepId);
+        OutcomeCounted(stepId, succeeded: false);
         State.Progress.FailedSteps++;
         CountStepOutcomeInStage(stepId, succeeded: false);
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -205,19 +207,19 @@ public abstract partial class Job<TRequest, TJobState>
     /// Recount the job's progress from the persisted state of its steps.
     /// </summary>
     /// <param name="countStopped">Whether stopped steps count as stopped, as they do when a stop settles, rather than as left to resume.</param>
-    /// <returns>Awaitable task.</returns>
+    /// <returns>The steps the progress was recounted from, or null when they could not be read.</returns>
     /// <remarks>
     /// The progress is maintained by counting step outcomes as they are reported, so an outcome that never reached
     /// storage leaves it permanently short of the total and the job never finishes (#3944). The steps are the record
     /// of what actually happened, so they are what a stalled job's progress is rebuilt from.
     /// </remarks>
-    async Task ReconcileProgressFromJobSteps(bool countStopped = false)
+    async Task<IImmutableList<JobStepState>?> ReconcileProgressFromJobSteps(bool countStopped = false)
     {
         var getJobSteps = await Storage.JobSteps.GetForJob(JobId);
         if (getJobSteps.TryGetException(out var exception))
         {
             _logger.FailedReconcilingProgressFromJobSteps(exception);
-            return;
+            return null;
         }
 
         var steps = getJobSteps.AsT0;
@@ -226,8 +228,9 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.FailedSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedWithFailure or JobStepStatus.Failed);
         State.Progress.UnreachableSteps = steps.Count(_ => _.Status is JobStepStatus.Unreachable);
         State.Progress.StoppedSteps = countStopped ? steps.Count(_ => _.Status is JobStepStatus.Stopped) : 0;
-        State.Progress.Stages = JobStages.Reconcile(steps);
+        State.Progress.Stages = JobStages.Reconcile(steps, State.Progress.Stages);
         TrackStagesOf(steps);
+        return steps;
     }
 
     IJobStep GetJobStepGrain(JobStepDetails details) => (GrainFactory.GetGrain(details.Type, details.Id, keyExtension: details.Key) as IJobStep)!;

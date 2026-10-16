@@ -38,23 +38,7 @@ public static class JobStages
     /// Stage progress is counted as outcomes are reported, so an outcome that never reached storage leaves a stage
     /// short of its total forever. The steps are the record of what happened, which is what this counts from.
     /// </remarks>
-    public static IList<JobStageProgress> Reconcile(IEnumerable<JobStepState> steps)
-    {
-        var reconciled = steps
-            .GroupBy(_ => _.Stage.Value)
-            .OrderBy(_ => _.Key)
-            .Select(_ => new JobStageProgress
-            {
-                Stage = _.Key,
-                IsStarted = _.Any(step => step.Status is not JobStepStatus.Unknown),
-                TotalSteps = _.Count(),
-                SuccessfulSteps = _.Count(step => step.Status.IsSuccessful()),
-                FailedSteps = _.Count(step => step.Status.IsFailed()),
-                UnreachableSteps = _.Count(step => step.Status is JobStepStatus.Unreachable)
-            })
-            .ToList();
-        return reconciled.Count > 1 ? reconciled : [];
-    }
+    public static IList<JobStageProgress> Reconcile(IEnumerable<JobStepState> steps) => Reconcile(steps, []);
 
     /// <summary>
     /// Get the stage that is currently running - the first one that has not completed.
@@ -74,6 +58,40 @@ public static class JobStages
         stages
             .TakeWhile(_ => _.IsCompleted)
             .FirstOrDefault(_ => _.HasFailures && behaviorFor(_.Stage) is JobStageFailureBehavior.StopJob);
+
+    /// <summary>
+    /// Rebuild the progress of each stage from the persisted state of the job's steps, keeping the stages a job had
+    /// planned that no step record is left of.
+    /// </summary>
+    /// <param name="steps">The persisted <see cref="JobStepState"/> of every step in the job.</param>
+    /// <param name="planned">The <see cref="JobStageProgress"/> the job had before it was rebuilt.</param>
+    /// <returns>The <see cref="JobStageProgress"/> for each stage, in the order they run - empty when every step is in the same stage.</returns>
+    /// <remarks>
+    /// Persisting a success removes the step's record, so a stage whose steps all succeeded leaves nothing behind. It
+    /// still ran: without it a job could look as if it had one stage left, and the stage after it would never start.
+    /// </remarks>
+    internal static IList<JobStageProgress> Reconcile(IEnumerable<JobStepState> steps, IEnumerable<JobStageProgress> planned)
+    {
+        var fromSteps = steps
+            .GroupBy(_ => _.Stage.Value)
+            .Select(_ => new JobStageProgress
+            {
+                Stage = _.Key,
+                IsStarted = _.Any(step => step.Status is not JobStepStatus.Unknown),
+                TotalSteps = _.Count(),
+                SuccessfulSteps = _.Count(step => step.Status.IsSuccessful()),
+                FailedSteps = _.Count(step => step.Status.IsFailed()),
+                UnreachableSteps = _.Count(step => step.Status is JobStepStatus.Unreachable)
+            })
+            .ToList();
+        var reconciled = fromSteps
+            .Concat(planned
+                .Where(stage => fromSteps.TrueForAll(_ => _.Stage != stage.Stage))
+                .Select(stage => new JobStageProgress { Stage = stage.Stage, IsStarted = true }))
+            .OrderBy(_ => _.Stage.Value)
+            .ToList();
+        return reconciled.Count > 1 ? reconciled : [];
+    }
 
     static bool IsSuccessful(this JobStepStatus status) => status is JobStepStatus.CompletedSuccessfully;
 

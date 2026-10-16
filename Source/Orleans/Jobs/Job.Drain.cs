@@ -202,10 +202,12 @@ public abstract partial class Job<TRequest, TJobState>
         switch (result.Status)
         {
             case JobStepStatus.CompletedSuccessfully:
+                OutcomeCounted(stepId, succeeded: true);
                 State.Progress.SuccessfulSteps++;
                 CountStepOutcomeInStage(stepId, succeeded: true);
                 break;
             case JobStepStatus.CompletedWithFailure or JobStepStatus.Failed:
+                OutcomeCounted(stepId, succeeded: false);
                 State.Progress.FailedSteps++;
                 CountStepOutcomeInStage(stepId, succeeded: false);
                 break;
