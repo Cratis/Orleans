@@ -1,6 +1,7 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Runtime.ExceptionServices;
 using Cratis.DependencyInjection;
 using Cratis.Monads;
 using Cratis.Orleans.Storage;
@@ -82,7 +83,11 @@ public class Jobs(
         var type = storedType.Match(
             type => type,
             error => throw new JobTypeReadFailed(jobId, error),
-            exception => throw exception);
+            exception =>
+            {
+                ExceptionDispatchInfo.Capture(exception).Throw();
+                return default;
+            });
         return jobTypes.GetClrTypeFor(type).Match(
             clrType => Result<IJob, JobType?>.Success((IJob)grainFactory.GetGrain(clrType, jobId, key)),
             _ => Result<IJob, JobType?>.Failed(type));
