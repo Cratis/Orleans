@@ -20,7 +20,7 @@ namespace Cratis.Orleans.Jobs;
 /// <typeparam name="TJobState">Type of state for the job.</typeparam>
 [StorageProvider(ProviderName = WellKnownGrainStorageProviders.Jobs)]
 [ResourceOptimizedPlacement]
-public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<TRequest>
+public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<TRequest>, IJobDrain
     where TRequest : class, IJobRequest
     where TJobState : JobState
 {
@@ -129,6 +129,10 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         {
             _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
         }
+        if (State.DrainPending)
+        {
+            CompleteDrainAfterActivation();
+        }
     }
 
     /// <inheritdoc/>
@@ -177,6 +181,13 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (State.Status is JobStatus.Failed)
             {
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
+
+            // A drain is not settled yet; nothing of the job may run until it is.
+            if (State.DrainPending)
+            {
+                _logger.NotResumingWhileDrainIsPending();
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
             }
 
             // A job can be left persisted as running with every one of its steps already accounted for: the
@@ -259,6 +270,9 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 State.Progress.StoppedSteps = stoppedSteps;
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
+
+            // Reports of the drained execution are told apart by their generation from here on.
+            _accountedByDrain.Clear();
             await OnBeforeResumingJobSteps();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
         }

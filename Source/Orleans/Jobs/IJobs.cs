@@ -50,4 +50,17 @@ public interface IJobs
     /// <param name="jobId">The job identity.</param>
     /// <returns>The removal outcome. Storage and grain-call exceptions propagate.</returns>
     Task<DeleteJobResult> Delete(JobKey key, JobId jobId);
+
+    /// <summary>
+    /// Stops a known job and waits until its steps are drained, through its grain; see <see cref="IJobDrain.StopAndDrain"/>.
+    /// </summary>
+    /// <param name="key">The job's storage scope and namespace.</param>
+    /// <param name="jobId">The job identity.</param>
+    /// <param name="timeout">How long to wait. <see cref="TimeSpan.Zero"/> polls without waiting.</param>
+    /// <returns>The drain outcome. Storage and grain-call exceptions propagate.</returns>
+    /// <remarks>
+    /// Use only once every silo runs a release with <see cref="IJobDrain"/>. Calling again continues a drain that
+    /// timed out.
+    /// </remarks>
+    Task<DrainJobResult> StopAndDrain(JobKey key, JobId jobId, TimeSpan timeout);
 }

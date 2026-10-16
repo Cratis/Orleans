@@ -18,6 +18,14 @@ public abstract partial class Job<TRequest, TJobState>
     {
         // Read and removed first, so the generation never flows into the hooks and stages the outcome leads to.
         var generation = JobExecutionGeneration.Take();
+
+        // A drain took this step's outcome from the step itself; the step's own report of it counts nothing.
+        if (_accountedByDrain.Contains(stepId))
+        {
+            _logger.IgnoringOutcomeAccountedForByDrain(stepId);
+            return true;
+        }
+
         if (generation is { } reported && reported < ExecutionGeneration())
         {
             // A stop of an earlier execution is not a stop of this one: the step stays tracked and is started again.

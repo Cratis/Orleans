@@ -9,8 +9,8 @@ namespace Cratis.Orleans.Jobs;
 /// Defines how a job drains one of its steps.
 /// </summary>
 /// <remarks>
-/// This is the protocol between a job and its steps. It is public only because grain interfaces have to be; drain
-/// a job through the job instead.
+/// This is the protocol between <see cref="IJobDrain"/> and the steps of a job. It is public only because grain
+/// interfaces have to be; drain a job through <see cref="IJobDrain.StopAndDrain"/> or <see cref="IJobs.StopAndDrain"/>.
 /// </remarks>
 public interface IJobStepDrain : IGrainWithGuidCompoundKey
 {

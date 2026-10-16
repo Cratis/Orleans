@@ -125,6 +125,12 @@ public abstract partial class Job<TRequest, TJobState>
         try
         {
             await OnStepCompletedOrStopped(stepId, result);
+
+            // While a drain is pending only the drain settles the job; a report merely counts its step.
+            if (State.DrainPending)
+            {
+                return Result.Success<JobError>();
+            }
             await AdvanceStagesAfter(stepId);
             var handleCompletionResult = await HandleCompletion();
             return await HandleCompletionResult(handleCompletionResult);
@@ -198,13 +204,14 @@ public abstract partial class Job<TRequest, TJobState>
     /// <summary>
     /// Recount the job's progress from the persisted state of its steps.
     /// </summary>
+    /// <param name="countStopped">Whether stopped steps count as stopped, as they do when a stop settles, rather than as left to resume.</param>
     /// <returns>Awaitable task.</returns>
     /// <remarks>
     /// The progress is maintained by counting step outcomes as they are reported, so an outcome that never reached
     /// storage leaves it permanently short of the total and the job never finishes (#3944). The steps are the record
     /// of what actually happened, so they are what a stalled job's progress is rebuilt from.
     /// </remarks>
-    async Task ReconcileProgressFromJobSteps()
+    async Task ReconcileProgressFromJobSteps(bool countStopped = false)
     {
         var getJobSteps = await Storage.JobSteps.GetForJob(JobId);
         if (getJobSteps.TryGetException(out var exception))
@@ -218,7 +225,7 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.SuccessfulSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedSuccessfully);
         State.Progress.FailedSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedWithFailure or JobStepStatus.Failed);
         State.Progress.UnreachableSteps = steps.Count(_ => _.Status is JobStepStatus.Unreachable);
-        State.Progress.StoppedSteps = 0;
+        State.Progress.StoppedSteps = countStopped ? steps.Count(_ => _.Status is JobStepStatus.Stopped) : 0;
         State.Progress.Stages = JobStages.Reconcile(steps);
         TrackStagesOf(steps);
     }

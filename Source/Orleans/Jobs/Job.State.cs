@@ -77,19 +77,37 @@ public abstract partial class Job<TRequest, TJobState>
     /// </remarks>
     async Task<bool> TryWriteStatusChanged(JobStatus status)
     {
-        var previousStatus = State.Status;
-        var previousChanges = State.StatusChanges.Count;
-        if ((await WriteStatusChanged(status)).IsSuccess)
+        var written = await WriteOrUndo(() =>
         {
-            return true;
-        }
+            _logger.ChangingStatus(status);
+            StatusChanged(status);
+        });
+        return !written.TryGetException(out _);
+    }
 
-        while (State.StatusChanges.Count > previousChanges)
+    /// <summary>
+    /// Applies a change to the status or the pending drain and writes the state, undoing the change in memory when the
+    /// write fails.
+    /// </summary>
+    /// <param name="change">The change to apply.</param>
+    /// <returns>The outcome of the write.</returns>
+    async Task<Catch> WriteOrUndo(Action change)
+    {
+        var status = State.Status;
+        var statusChanges = State.StatusChanges.Count;
+        var drainPending = State.DrainPending;
+        change();
+        var written = await WriteState();
+        if (written.TryGetException(out _))
         {
-            State.StatusChanges.RemoveAt(State.StatusChanges.Count - 1);
+            while (State.StatusChanges.Count > statusChanges)
+            {
+                State.StatusChanges.RemoveAt(State.StatusChanges.Count - 1);
+            }
+            State.Status = status;
+            State.DrainPending = drainPending;
         }
-        State.Status = previousStatus;
-        return false;
+        return written;
     }
 
     bool JobIsRunning() => State.Status is JobStatus.Running or JobStatus.PreparingJob or JobStatus.PreparingSteps or JobStatus.StartingSteps;

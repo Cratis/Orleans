@@ -73,6 +73,24 @@ public class Jobs(
                 : new DeleteJobResult.UnknownJobType(jobId, type)));
     }
 
+    /// <inheritdoc/>
+    public async Task<DrainJobResult> StopAndDrain(JobKey key, JobId jobId, TimeSpan timeout)
+    {
+        var lookup = await ResolveJob(key, jobId);
+        return await lookup.Match(
+            async job => ToDrainJobResult(jobId, await (job as IJobDrain ?? job.AsReference<IJobDrain>()).StopAndDrain(timeout)),
+            type => Task.FromResult<DrainJobResult>(type is null
+                ? new DrainJobResult.NotFound(jobId)
+                : new DrainJobResult.UnknownJobType(jobId, type)));
+    }
+
+    static DrainJobResult ToDrainJobResult(JobId jobId, JobDrainStatus status) => status switch
+    {
+        JobDrainStatus.Drained => new DrainJobResult.Drained(jobId),
+        JobDrainStatus.Completed => new DrainJobResult.Completed(jobId),
+        _ => new DrainJobResult.TimedOut(jobId)
+    };
+
     async Task<Result<IJob, JobType?>> ResolveJob(JobKey key, JobId jobId)
     {
         var storedType = await jobsStorage.GetFor(key.Scope, key.Namespace).Jobs.GetJobType(jobId);
