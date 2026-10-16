@@ -25,6 +25,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
     public int AllStepsCompletedCount;
+    public int StoppedCount;
+    public bool FailWrites;
     public List<JobStepId> HandledStepResults = [];
     public int ResultsSeenAtCompletion;
     public int SuccessfulStepsAtCompletion;
@@ -48,6 +50,14 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     }
 
     protected override Task<bool> CanResume() => Task.FromResult(ShouldBeResumable);
+
+    protected override Task OnStopped()
+    {
+        StoppedCount++;
+        return Task.CompletedTask;
+    }
+
+    protected override Task WriteStateAsync() => FailWrites ? Task.FromException(new InvalidOperationException("The write failed")) : base.WriteStateAsync();
 
     protected override JobStageFailureBehavior GetFailureBehaviorFor(JobStepStage stage) =>
         StagesContinuingOnFailure.Contains(stage) ? JobStageFailureBehavior.ContinueWithNextStage : JobStageFailureBehavior.StopJob;

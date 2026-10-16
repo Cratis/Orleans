@@ -3,4 +3,4 @@
 
 namespace Cratis.Orleans.Jobs.for_Job.given;
 
-public interface ISomeJobStep : IJobStep, IJobObserver;
+public interface ISomeJobStep : IJobStep, IJobObserver, IJobStepDrain;

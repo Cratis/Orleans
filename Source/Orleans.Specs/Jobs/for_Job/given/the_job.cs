@@ -63,6 +63,36 @@ public class the_job : Specification
         return state;
     }
 
+    protected static JobStepResult Stopped => JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult());
+
+    /// <summary>
+    /// Makes a step answer a drain as drained, having persisted the given status as a real step does.
+    /// </summary>
+    /// <param name="step">The step.</param>
+    /// <param name="stepId">The id of the step.</param>
+    /// <param name="status">The status the step ends in.</param>
+    /// <param name="outcome">The outcome of its run.</param>
+    protected void DrainsAs(Mock<ISomeJobStep> step, JobStepId stepId, JobStepStatus status, JobStepResult? outcome) =>
+        step.Setup(_ => _.Drain(It.IsAny<long>(), It.IsAny<TimeSpan>())).Returns(() =>
+        {
+            if (status is JobStepStatus.CompletedSuccessfully)
+            {
+                _storedJobStepStates.Remove(StoredJobStep(stepId));
+            }
+            else
+            {
+                StoredJobStep(stepId).Status = status;
+            }
+            return Task.FromResult(new JobStepDrainResult(true, status, outcome));
+        });
+
+    /// <summary>
+    /// Makes a step answer a drain as not drained in time.
+    /// </summary>
+    /// <param name="step">The step.</param>
+    protected static void DoesNotDrain(Mock<ISomeJobStep> step) =>
+        step.Setup(_ => _.Drain(It.IsAny<long>(), It.IsAny<TimeSpan>())).ReturnsAsync(new JobStepDrainResult(false, JobStepStatus.Running, null));
+
     void RecordJobStepStatus(JobStepId jobStepId, JobStepStatus status) => StoredJobStep(jobStepId).Status = status;
 
     async Task Establish()

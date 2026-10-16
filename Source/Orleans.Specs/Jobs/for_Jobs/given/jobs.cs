@@ -32,7 +32,7 @@ public class jobs : Specification
         _storage = Substitute.For<job_storage>(Substitute.For<IJobStorage>());
         _types = Substitute.For<IJobTypes>();
         _keys = new();
-        _job = Substitute.For<INullJobWithSomeRequest>();
+        _job = Substitute.For<INullJobWithSomeRequest, IJobDrain>();
         _factory.GetGrain<INullJobWithSomeRequest>(_id, _key).Returns(_job);
         _factory.GetGrain(typeof(INullJobWithSomeRequest), _id, _key).Returns(_job);
         _factory.GetGrain<IJobsManager>(0, new JobsManagerKey(_key.Scope, _key.Namespace)).Returns(_manager);

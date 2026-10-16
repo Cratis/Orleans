@@ -53,6 +53,11 @@ public class SomeJobStepGrain(
     public int WorkRuns => _workRuns;
 
     /// <summary>
+    /// Gets the signal that background work has been launched a second time.
+    /// </summary>
+    public TaskCompletionSource SecondWorkRunEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the gate holding work before the base implementation inspects cancellation.
     /// </summary>
     public TaskCompletionSource WorkGate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -165,7 +170,10 @@ public class SomeJobStepGrain(
     {
         try
         {
-            Interlocked.Increment(ref _workRuns);
+            if (Interlocked.Increment(ref _workRuns) == 2)
+            {
+                SecondWorkRunEntered.TrySetResult();
+            }
             WorkEntered.TrySetResult();
             if (HoldWorkBeforePerformWork)
             {
