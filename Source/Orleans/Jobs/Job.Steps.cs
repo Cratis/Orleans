@@ -128,8 +128,9 @@ public abstract partial class Job<TRequest, TJobState>
         {
             await OnStepCompletedOrStopped(stepId, result);
 
-            // While a drain is pending only the drain settles the job; a report merely counts its step.
-            if (State.DrainPending)
+            // While a drain is pending only the drain settles a stopped job; a report merely counts its step. A removal
+            // takes the drain over: it completes once every step has reported, and clearing the job ends the drain.
+            if (State.DrainPending && State.Status is JobStatus.Stopped)
             {
                 return Result.Success<JobError>();
             }
