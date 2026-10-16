@@ -10,7 +10,7 @@ internal static partial class JobsRecoveryLogging
     [LoggerMessage(Level = LogLevel.Warning, Message = "Jobs recovery is incomplete: only manager keys seen on this silo are known. Provide a singleton IJobsManagerKeys implementation enumerating all host scopes and namespaces for complete recovery.")]
     internal static partial void IncompleteRecoveryKeys(this ILogger<JobsRecovery> logger);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to enumerate jobs manager keys from {Provider}")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to resolve or enumerate jobs manager keys from {Provider}")]
     internal static partial void KeyProviderFailed(this ILogger<JobsRecovery> logger, Exception exception, Type provider);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Recovering jobs after {Count} cluster members became dead")]

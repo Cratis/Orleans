@@ -168,9 +168,11 @@ values on the job instead.
 
 A crashed silo leaves durable `Running` state behind, not a live performer. `AddCratisOrleans` installs a recovery
 participant that asks the jobs managers to rehydrate after the silo becomes Active. When Orleans declares a
-cluster member Dead, the oldest Active silo requests another recovery pass. The election uses the silo's generation
-and breaks ties by address. Briefly disagreeing membership views can trigger duplicate passes; live steps are
-checked rather than started twice. Reminders play no part in recovery.
+cluster member Dead, the oldest Active silo requests another recovery pass when you provide a host key catalog.
+The election uses the silo's generation and breaks ties by address. Without a host catalog, every surviving silo
+recovers the keys it remembers; electing one would miss keys known only to another survivor. Briefly disagreeing
+membership views can trigger duplicate passes; live steps are checked rather than started twice. Reminders play
+no part in recovery.
 
 Recovery preserves the original job id, scope, namespace and current stage. It starts only unfinished prepared
 steps; successful steps remain completed. An interrupted step may execute again, so protect external effects with
@@ -191,7 +193,9 @@ in-memory catalog does not survive a process restart.
 Provide a singleton `IJobsManagerKeys` implementation on every silo for complete recovery. Providers are discovered
 by convention, combined with the default, and duplicate keys are recovered once per pass. They run outside any
 request scope: never inject tenant-scoped databases, request-scoped services, or a current-user value. A provider
-failure is logged without preventing recovery for other providers. There is no periodic sweep by default;
+resolution or enumeration failure is logged without preventing recovery for other providers. Providers are resolved
+again on each pass, so a failed constructor can recover on a later pass. Register them as singletons to preserve
+their intended lifetime. There is no periodic sweep by default;
 `IJobsManager.Rehydrate()` remains available for an explicit pass.
 
 For a Studio-shaped host, the catalog is the set of **event stores × tenant namespaces**. This example uses a

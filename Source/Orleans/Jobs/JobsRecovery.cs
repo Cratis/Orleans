@@ -51,12 +51,7 @@ public sealed class JobsRecovery(
     {
         try
         {
-            var providers = keys.ToArray();
-            if (providers.All(provider => provider is JobsManagerKeys))
-            {
-                logger.IncompleteRecoveryKeys();
-            }
-            await Rehydrate(providers, cancellationToken);
+            var hasHostProvider = await Rehydrate(cancellationToken);
             var dead = new HashSet<SiloAddress>();
             await foreach (var snapshot in membership.MembershipUpdates.WithCancellation(cancellationToken))
             {
@@ -64,15 +59,12 @@ public sealed class JobsRecovery(
                     .Where(member => member.Status is SiloStatus.Dead)
                     .Select(member => member.SiloAddress)
                     .Count(dead.Add);
-                var elected = snapshot.Members.Values
-                    .Where(member => member.Status is SiloStatus.Active)
-                    .OrderBy(member => member.SiloAddress.Generation)
-                    .ThenBy(member => member.SiloAddress.ToParsableString(), StringComparer.Ordinal)
-                    .FirstOrDefault();
-                if (newlyDead > 0 && elected?.SiloAddress.Equals(localSilo.SiloAddress) == true)
+
+                // Seen keys are silo-local: electing one survivor would lose the other survivors' catalogs.
+                if (newlyDead > 0 && (!hasHostProvider || IsElected(snapshot)))
                 {
                     logger.RecoveringAfterMemberFailure(newlyDead);
-                    await Rehydrate(providers, cancellationToken);
+                    hasHostProvider = await Rehydrate(cancellationToken);
                 }
             }
         }
@@ -86,8 +78,20 @@ public sealed class JobsRecovery(
         }
     }
 
-    async Task Rehydrate(IJobsManagerKeys[] providers, CancellationToken cancellationToken)
+    bool IsElected(ClusterMembershipSnapshot snapshot) => snapshot.Members.Values
+        .Where(member => member.Status is SiloStatus.Active)
+        .OrderBy(member => member.SiloAddress.Generation)
+        .ThenBy(member => member.SiloAddress.ToParsableString(), StringComparer.Ordinal)
+        .FirstOrDefault()?.SiloAddress.Equals(localSilo.SiloAddress) == true;
+
+    async Task<bool> Rehydrate(CancellationToken cancellationToken)
     {
+        var providers = keys.ToArray();
+        var hasHostProvider = providers.Any(provider => provider is not JobsManagerKeys);
+        if (!hasHostProvider)
+        {
+            logger.IncompleteRecoveryKeys();
+        }
         var recovered = new HashSet<JobsManagerKey>();
         foreach (var provider in providers)
         {
@@ -114,5 +118,6 @@ public sealed class JobsRecovery(
             }
         }
         logger.RecoveredManagers(recovered.Count);
+        return hasHostProvider;
     }
 }

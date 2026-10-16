@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orleans.Configuration;
 using Orleans.Providers.MongoDB.Configuration;
@@ -131,7 +132,11 @@ public static class CratisOrleansSiloBuilderExtensions
     {
         silo.Services.TryAddSingleton<ITypes>(_ => new Cratis.Types.Types());
         silo.Services.TryAddSingleton<JobsManagerKeys>();
-        silo.Services.TryAddTransient<IInstancesOf<IJobsManagerKeys>, InstancesOf<IJobsManagerKeys>>();
+        silo.Services.TryAddTransient<IInstancesOf<IJobsManagerKeys>>(services => new JobsManagerKeyProviders(
+            services.GetRequiredService<ITypes>().FindMultiple<IJobsManagerKeys>()
+                .Select(type => (type, (Func<IJobsManagerKeys>)(() => (IJobsManagerKeys)ActivatorUtilities.GetServiceOrCreateInstance(services, type))))
+                .ToArray(),
+            services.GetRequiredService<ILogger<JobsRecovery>>()));
         silo.Services.TryAddEnumerable(ServiceDescriptor.Singleton<ILifecycleParticipant<ISiloLifecycle>, JobsRecovery>());
         return silo;
     }
