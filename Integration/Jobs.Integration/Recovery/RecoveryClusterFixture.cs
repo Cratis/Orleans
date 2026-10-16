@@ -30,10 +30,14 @@ public sealed class RecoveryClusterFixture : IDisposable
 
     public IJobsManager Manager => Cluster.GrainFactory.GetJobsManager(Signals.Key.Scope, Signals.Key.Namespace);
 
-    public async Task<(JobId Id, IRecoveryJob Job)> Start()
+    public async Task<(JobId Id, IRecoveryJob Job)> Start(bool throughLocalApi = false)
     {
         var id = JobId.New();
-        var result = await Manager.Start<IRecoveryJob, RecoveryRequest>(id, new()).WaitAsync(Deadline, TimeProvider.System);
+        var start = throughLocalApi
+            ? ((InProcessSiloHandle)Cluster.Primary).SiloHost.Services.GetRequiredService<IJobs>()
+                .Start<IRecoveryJob, RecoveryRequest>(new JobKey(Signals.Key.Scope, Signals.Key.Namespace), id, new())
+            : Manager.Start<IRecoveryJob, RecoveryRequest>(id, new());
+        var result = await start.WaitAsync(Deadline, TimeProvider.System);
         result.IsSuccess.ShouldBeTrue();
         var job = Cluster.GrainFactory.GetGrain<IRecoveryJob>(id, new JobKey(Signals.Key.Scope, Signals.Key.Namespace));
         (await job.Silo()).ShouldEqual(VictimAddress);

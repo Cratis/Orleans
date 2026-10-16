@@ -34,6 +34,11 @@ public class IntegrationJobStopSignals
     public TaskCompletionSource Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
+    /// Gets the signal that the job completed all its steps.
+    /// </summary>
+    public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
     /// Gets the work's outcome after all reporting and persistence have completed.
     /// </summary>
     public TaskCompletionSource<PerformWorkResult<JobStepResult>> WorkCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
