@@ -43,6 +43,7 @@ public class JobsManager(
     Task? _rehydrationPreparation;
     Task? _rehydration;
     bool _rehydrationActive;
+    bool _rehydrationRequested;
     JobsStorage? _jobsStorageForScope;
     IJobStorage? _jobStorage;
     IJobStepStorage? _jobStepStorage;
@@ -54,6 +55,7 @@ public class JobsManager(
     {
         this.GetPrimaryKeyLong(out var key);
         _key = key!;
+        ServiceProvider.GetService<JobsManagerKeys>()?.Remember(_key);
         var applicationLifetime = ServiceProvider.GetRequiredService<IHostApplicationLifetime>();
         _rehydrationCancellation = CancellationTokenSource.CreateLinkedTokenSource(applicationLifetime.ApplicationStopping);
 
@@ -145,6 +147,7 @@ public class JobsManager(
         }
         if (_rehydrationActive)
         {
+            _rehydrationRequested = true;
             return Task.CompletedTask;
         }
         return _rehydrationPreparation = PrepareRehydration();
@@ -360,11 +363,7 @@ public class JobsManager(
         using var scope = logger.BeginJobsManagerScope(_key);
         try
         {
-            await RunBounded(
-                runningJobs.OrderBy(state => state.Created).ToList(),
-                options.Value.MaxConcurrentRehydration,
-                state => ResumeJobAndHandleResult(state, cancellationToken),
-                cancellationToken);
+            await DrainRehydrationPasses(runningJobs, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -390,6 +389,30 @@ public class JobsManager(
 
             // Release everything this pass owns before admitting another one. Task completion happens later.
             _rehydrationActive = false;
+        }
+    }
+
+    async Task DrainRehydrationPasses(IEnumerable<JobState> runningJobs, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await RunBounded(
+                runningJobs.OrderBy(state => state.Created).ToList(),
+                options.Value.MaxConcurrentRehydration,
+                state => ResumeJobAndHandleResult(state, cancellationToken),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_rehydrationRequested)
+            {
+                return;
+            }
+
+            // Coalesce requests during a drain into a fresh full pass, not another concurrent drain.
+            _rehydrationRequested = false;
+            await CleanupDeadJobs().WaitAsync(cancellationToken);
+            var discovered = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
+            discovered.RethrowError();
+            runningJobs = discovered.AsT0;
         }
     }
 

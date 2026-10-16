@@ -34,7 +34,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
     IJobStep<TRequest, TResult, TState> _thisJobStep = null!;
     CancellationTokenSource? _cancellationTokenSource = new();
     IJob _job = new NullJob();
-    bool _currentlyRunning;
+    bool _starting;
     volatile bool _stopRequested;
     JobStepCheckpointDebounce _checkpoints = new(1);
 
@@ -140,6 +140,11 @@ public abstract class JobStep<TRequest, TResult, TState>(
     public async Task<Result<StartJobStepError>> Start(GrainId jobGrainId)
     {
         using var scope = logger.BeginJobStepScope(State);
+        if (_starting)
+        {
+            return StartJobStepError.AlreadyStarted;
+        }
+        _starting = true;
         try
         {
             if (!State.IsPrepared)
@@ -147,17 +152,14 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 return StartJobStepError.NotPrepared;
             }
 
+            // Reserve before yielding: Start may interleave with another Start or with a failure report
+            // waiting on the parent. Neither persisted status nor a flag that outlives the worker is liveness.
+            if (await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running)
+            {
+                return StartJobStepError.AlreadyStarted;
+            }
             switch (State.Status)
             {
-                // The persisted status alone cannot answer "is this step running?": a step that was
-                // Scheduled or Running when its process died is persisted exactly like one running
-                // right now, but the background task doing the work died with the process. Only when
-                // this activation actually holds in-flight work is a second Start a double start -
-                // otherwise the step must start over, or it stays Scheduled forever, wedging its job
-                // and every step queued behind it on the throttle. Performing a step twice is part of
-                // its contract; never performing it is not.
-                case JobStepStatus.Scheduled or JobStepStatus.Running when _currentlyRunning:
-                    return StartJobStepError.AlreadyStarted;
                 case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
                     return StartJobStepError.Completed;
                 case JobStepStatus.Failed:
@@ -167,19 +169,16 @@ public abstract class JobStep<TRequest, TResult, TState>(
             _thisJobStep = GetReferenceToSelf();
             _job = GetJob(jobGrainId);
 
-            // PerformWork owns cancellation reporting; the worker must not skip it after scheduling.
-            var scheduledWork = await Start(CancellationToken.None);
-            if (scheduledWork)
-            {
-                _currentlyRunning = true;
-                _ = await WriteStatusChange(JobStepStatus.Scheduled);
-            }
-            return scheduledWork ? Result.Success<StartJobStepError>() : StartJobStepError.AlreadyStarted;
+            return await DispatchPreparedWork();
         }
         catch (Exception ex)
         {
             logger.FailedUnexpectedly(ex);
             return StartJobStepError.Unknown;
+        }
+        finally
+        {
+            _starting = false;
         }
     }
 
@@ -211,44 +210,27 @@ public abstract class JobStep<TRequest, TResult, TState>(
     public async Task<Result<JobStepError>> Stop(bool removing)
     {
         using var scope = logger.BeginJobStepScope(State);
+
+        // A late notification must not replace a terminal outcome or report a second outcome to the job.
+        if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
+        {
+            return Result.Success<JobStepError>();
+        }
         try
         {
             if (!removing && State.Status is JobStepStatus.Stopped)
             {
                 logger.AlreadyStopped();
-                try
-                {
-                    DeactivateOnIdle();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Grain activation may already be invalid during silo shutdown.
-                }
+                TryDeactivateOnIdle();
                 return Result.Success<JobStepError>();
             }
 
             logger.Stopping();
-            _stopRequested = true;
-            var cts = _cancellationTokenSource;
-            _cancellationTokenSource = null;
-            await (cts?.CancelAsync() ?? Task.CompletedTask);
-            cts?.Dispose();
-            if (_currentlyRunning)
+            var workerOwnsStop = await CancelWork();
+            if (!workerOwnsStop && State.IsPrepared)
             {
-                return Result.Success<JobStepError>();
+                await ReportStoppedFromCurrentState();
             }
-
-            if (!State.IsPrepared)
-            {
-                return Result.Success<JobStepError>();
-            }
-
-            // Logic here is that if we stop a job step that is not currently running and maybe not even prepared we still want to go through the same job step completion process
-            // Therefore we want to try to create a job step result from whatever the current state is and use that in the completion process.
-            var result = await CreateCancelledResultFromCurrentState(State);
-            await ReportFailure(result is not null
-                ? PerformJobStepError.CancelledWithPartialResult(result)
-                : PerformJobStepError.CancelledWithNoResult());
             return Result.Success<JobStepError>();
         }
         catch (Exception ex)
@@ -265,14 +247,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 _ = await WriteStatusChange(JobStepStatus.Removing);
                 if (wasStopped)
                 {
-                    try
-                    {
-                        DeactivateOnIdle();
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        // Grain activation may already be invalid during silo shutdown.
-                    }
+                    TryDeactivateOnIdle();
                 }
             }
         }
@@ -620,6 +595,67 @@ public abstract class JobStep<TRequest, TResult, TState>(
     /// </remarks>
     /// <returns>The result.</returns>
     protected abstract ValueTask<TResult?> CreateCancelledResultFromCurrentState(TState currentState);
+
+    async Task<Result<StartJobStepError>> DispatchPreparedWork()
+    {
+        // Persist before dispatch so the worker cannot race its own reservation write.
+        var previousStatus = State.Status;
+        if (!(await WriteStatusChange(JobStepStatus.Scheduled)).IsSuccess)
+        {
+            return StartJobStepError.Unknown;
+        }
+
+        // PerformWork owns cancellation reporting; the worker must not skip it after scheduling.
+        try
+        {
+            if (await Start(CancellationToken.None))
+            {
+                return Result.Success<StartJobStepError>();
+            }
+        }
+        catch (Exception)
+        {
+            _ = await WriteStatusChange(previousStatus);
+            throw;
+        }
+
+        // A retained finished background task can refuse dispatch. Do not claim it is live or leave
+        // a Scheduled reservation with no performer. The caller receives a startup failure.
+        _ = await WriteStatusChange(previousStatus);
+        return StartJobStepError.Unknown;
+    }
+
+    async Task<bool> CancelWork()
+    {
+        // Cancellation can complete the worker before CancelAsync returns; capture report ownership first.
+        var workerOwnsStop = _starting || await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running;
+        _stopRequested = true;
+        var cts = _cancellationTokenSource;
+        _cancellationTokenSource = null;
+        await (cts?.CancelAsync() ?? Task.CompletedTask);
+        cts?.Dispose();
+        return workerOwnsStop;
+    }
+
+    async Task ReportStoppedFromCurrentState()
+    {
+        var result = await CreateCancelledResultFromCurrentState(State);
+        await ReportFailure(result is not null
+            ? PerformJobStepError.CancelledWithPartialResult(result)
+            : PerformJobStepError.CancelledWithNoResult());
+    }
+
+    void TryDeactivateOnIdle()
+    {
+        try
+        {
+            DeactivateOnIdle();
+        }
+        catch (InvalidOperationException)
+        {
+            // Grain activation may already be invalid during silo shutdown.
+        }
+    }
 
     async Task<Result<JobStepError>> WriteStatusChange(JobStepStatus status, IEnumerable<string>? exceptionMessages = null, string? exceptionStackTrace = null)
     {

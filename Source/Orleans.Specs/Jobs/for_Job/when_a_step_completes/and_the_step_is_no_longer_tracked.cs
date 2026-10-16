@@ -1,8 +1,10 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using System.Reflection;
 using Cratis.Monads;
 using Moq;
+using Orleans.Utilities;
 
 namespace Cratis.Orleans.Jobs.for_Job.when_a_step_completes;
 
@@ -12,6 +14,7 @@ public class and_the_step_is_no_longer_tracked : given.the_job
     JobStepId _secondJobStepId;
     JobStepId _untrackedJobStepId;
     Result<JobError> _result;
+    ObserverManager<JobStepId, IJobObserver> _observers;
 
     void Establish()
     {
@@ -32,9 +35,15 @@ public class and_the_step_is_no_longer_tracked : given.the_job
     async Task Because()
     {
         await _job.Start(new());
+
+        // A lost tracking entry must not leave its subscription behind.
+        _observers = (ObserverManager<JobStepId, IJobObserver>)typeof(Job<given.SomeRequest, given.SomeJobState>)
+            .GetField("_observers", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_job)!;
+        _observers.Subscribe(_untrackedJobStepId, Substitute.For<IJobObserver>());
         _result = await _job.OnStepSucceeded(_untrackedJobStepId, JobStepResult.Succeeded());
     }
 
+    [Fact] void should_unsubscribe_the_untracked_step() => _observers.Count.ShouldEqual(0);
     [Fact] void should_not_report_an_error() => _result.IsSuccess.ShouldBeTrue();
     [Fact] void should_count_the_step_as_successful() => _job.CurrentState.Progress.SuccessfulSteps.ShouldEqual(1);
     [Fact] void should_leave_the_job_running() => _job.CurrentState.Status.ShouldEqual(JobStatus.Running);

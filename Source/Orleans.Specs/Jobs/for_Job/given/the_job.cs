@@ -87,7 +87,7 @@ public class the_job : Specification
         _silo.AddService(_jobTypes);
         _silo.AddService(Options.Create(CreateOptions()));
         _silo.AddService(NullLogger<IJob>.Instance);
-        _silo.AddService(NullLogger<ObserverManager<IJobObserver>>.Instance);
+        _silo.AddService(NullLogger<ObserverManager<JobStepId, IJobObserver>>.Instance);
         var loggerFactory = Substitute.For<ILoggerFactory>();
         _silo.AddService(loggerFactory);
         _jobId = Guid.Parse("fefd1ea0-f739-4d68-8817-6c85f722dec4");
