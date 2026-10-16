@@ -22,6 +22,7 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
     readonly CancellationTokenSource _cancellation = new();
     readonly TaskCompletionSource _startup = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly CancellationTokenSource _admissionClosed = new();
+    readonly TaskCompletionSource _stopClaimed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     int _admittedCallbacks;
     TaskCompletionSource? _callbacksSettled;
 
@@ -86,6 +87,18 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
     public Task DeliverySettled { get; set; } = Task.CompletedTask;
 
     /// <summary>
+    /// Gets or sets the task that finishes a stop of the run: it waits for the work, claims the outcome, delivers
+    /// it and removes the step if its job is removed. Null until the run is stopped; there is only ever one.
+    /// </summary>
+    public Task? Stop { get; set; }
+
+    /// <summary>
+    /// Gets the task that completes once a stop has claimed the outcome and started delivering it, or decided there
+    /// is nothing to deliver.
+    /// </summary>
+    public Task StopClaimed => _stopClaimed.Task;
+
+    /// <summary>
     /// Gets the outcome of the run, once recorded. It is recorded once and never replaced.
     /// </summary>
     public JobStepResult? Outcome { get; private set; }
@@ -110,15 +123,22 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
     }
 
     /// <summary>
-    /// Gets a value indicating whether nothing of the run is still in flight: starting, work, callbacks and
-    /// delivery have all finished.
+    /// Gets a value indicating whether nothing of the run is still in flight: starting, work, callbacks, a stop and
+    /// delivery have all finished. A run whose stop has begun is unsettled until that stop has finished.
     /// </summary>
-    public bool IsSettled => Startup.IsCompleted && WorkerSettled.IsCompleted && DeliverySettled.IsCompleted && CallbacksSettled.IsCompleted;
+    public bool IsSettled =>
+        Startup.IsCompleted && WorkerSettled.IsCompleted && CallbacksSettled.IsCompleted &&
+        (Stop?.IsCompleted ?? true) && DeliverySettled.IsCompleted;
 
     /// <summary>
     /// Records that starting the run has finished.
     /// </summary>
     public void Started() => _startup.TrySetResult();
+
+    /// <summary>
+    /// Records that a stop has claimed the outcome, or that there is nothing for it to claim.
+    /// </summary>
+    public void Claimed() => _stopClaimed.TrySetResult();
 
     /// <summary>
     /// Records that the run's work has been launched and owns its outcome.
@@ -253,6 +273,10 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
         if (!CallbacksSettled.IsCompleted)
         {
             unsettled.Add("activation callbacks");
+        }
+        if (Stop is not null && !StopClaimed.IsCompleted)
+        {
+            unsettled.Add("outcome claim");
         }
         return string.Join(", ", unsettled);
     }

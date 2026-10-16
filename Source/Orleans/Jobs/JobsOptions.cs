@@ -106,9 +106,9 @@ public class JobsOptions
     /// Gets how long stopping a job step waits for its work to settle.
     /// </summary>
     /// <remarks>
-    /// A stopped step cancels its work, waits this long for the work and its activation callbacks to finish, and
-    /// only then records and reports the stop. A step that does not settle in time answers
-    /// <see cref="JobStepError.StopTimedOut"/> and is not quiescent. Keep it below the Orleans response timeout so
+    /// A stopped step cancels its work and waits this long for the work and its activation callbacks to finish
+    /// before it answers. A step that does not settle in time answers <see cref="JobStepError.StopTimedOut"/>, is
+    /// not quiescent, and reports its stop once the work settles. Keep it below the Orleans response timeout so
     /// the caller sees that answer rather than a timed-out call. Deactivation is bounded by Orleans' own
     /// deactivation timeout instead. Defaults to 10 seconds.
     /// </remarks>

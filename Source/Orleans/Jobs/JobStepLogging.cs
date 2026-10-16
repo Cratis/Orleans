@@ -70,7 +70,7 @@ public static partial class JobStepLogMessages
     [LoggerMessage(LogLevel.Warning, "Failed to report that that the performing of job step was cancelled. Error: {ReportError}")]
     public static partial void FailedReportingJobStepCancelled(this ILogger<IJobStep> logger, PerformWorkError reportError);
 
-    [LoggerMessage(LogLevel.Warning, "Job step '{JobStepName}' ({JobStepId}) of job {JobId} did not settle within {Elapsed} of being stopped; not settled: {Unsettled}. The step is not quiescent and its stop was not recorded")]
+    [LoggerMessage(LogLevel.Warning, "Job step '{JobStepName}' ({JobStepId}) of job {JobId} did not settle within {Elapsed} of being stopped; not settled: {Unsettled}. The step is not quiescent; its stop is reported once the work settles")]
     internal static partial void StopTimedOut(this ILogger<IJobStep> logger, string jobStepName, Guid jobStepId, Guid jobId, TimeSpan elapsed, string unsettled);
 
     [LoggerMessage(LogLevel.Warning, "Job step '{JobStepName}' ({JobStepId}) of job {JobId} did not settle within {Elapsed} of deactivating; not settled: {Unsettled}. Callbacks from its work are refused from now on")]

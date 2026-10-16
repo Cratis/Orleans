@@ -1,6 +1,7 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Monads;
 using Cratis.Orleans.Workers;
 using Microsoft.Extensions.DependencyInjection;
 using Orleans.Serialization;
@@ -37,7 +38,16 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             }
 
             using var scope = logger.BeginJobStepScope(Identifier, Name, JobStepStatus.Running);
-            var running = await TryInvokeOnActivation(MarkRunningAndSnapshot);
+            Result<TState, ActivationCallbackRejected> running;
+            try
+            {
+                running = await TryInvokeOnActivation(MarkRunningAndSnapshot);
+            }
+            catch (Exception ex)
+            {
+                // A step that cannot even be marked running still owes its job an outcome.
+                return await RecordFailure(run, ex);
+            }
             if (!running.TryGetResult(out var currentState))
             {
                 return Cancelled();
@@ -46,11 +56,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             var performed = await PerformStep(currentState, cancellationToken);
             return await performed.Match(
                 result => Record(run, result, null),
-                exception =>
-                {
-                    logger.HandleUnexpectedPerformJobStepFailure(exception);
-                    return Record(run, JobStepResult.Failed(PerformJobStepError.Failed(exception)), exception);
-                });
+                exception => RecordFailure(run, exception));
         }
         finally
         {
@@ -84,12 +90,38 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         return Snapshot();
     }
 
-    TState Snapshot() => ServiceProvider.GetRequiredService<DeepCopier<TState>>().Copy(State)!;
+    TState Snapshot()
+    {
+        DeepCopier<TState>? copier;
+        try
+        {
+            copier = ServiceProvider.GetService<DeepCopier<TState>>();
+        }
+        catch (Exception ex)
+        {
+            throw new MissingStateCopier(typeof(TState), ex);
+        }
+        return (copier ?? throw new MissingStateCopier(typeof(TState), null)).Copy(State)!;
+    }
+
+    Task<PerformWorkResult<JobStepResult>> RecordFailure(JobStepRun run, Exception exception)
+    {
+        logger.HandleUnexpectedPerformJobStepFailure(exception);
+        return Record(run, JobStepResult.Failed(PerformJobStepError.Failed(exception)), exception);
+    }
 
     async Task<PerformWorkResult<JobStepResult>> Record(JobStepRun run, JobStepResult outcome, Exception? exception)
     {
         // A rejected record means a stop or deactivation closed the run; its drainer decides what is reported.
-        _ = await TryInvokeOnActivation(() => Task.FromResult(RecordOutcome(run, outcome)));
+        try
+        {
+            _ = await TryInvokeOnActivation(() => Task.FromResult(RecordOutcome(run, outcome)));
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
+            return new() { Result = outcome, Exception = ex, Error = PerformWorkError.WorkerError };
+        }
         return ToPerformWorkResult(outcome, exception);
     }
 

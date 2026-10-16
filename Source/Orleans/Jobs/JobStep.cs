@@ -49,9 +49,15 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     TimeSpan _stopTimeout = new JobsOptions().StepStopTimeout;
 
     /// <summary>
-    /// Gets the delivery of the current run's outcome, which no stop, deactivation or start awaits.
+    /// Gets the delivery of the current run's outcome, including a stop's removal of the step, which no stop,
+    /// deactivation or start awaits.
     /// </summary>
-    internal Task OutcomeDelivery => _run?.DeliverySettled ?? Task.CompletedTask;
+    internal Task OutcomeDelivery => _run is { } run ? run.Stop ?? run.DeliverySettled : Task.CompletedTask;
+
+    /// <summary>
+    /// Gets the current run, if any.
+    /// </summary>
+    internal JobStepRun? CurrentRun => _run;
 
     /// <summary>
     /// Gets the <see cref="JobStepId"/> for this job step.
@@ -280,8 +286,9 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// Resolves a grain reference to this step.
     /// </summary>
     /// <remarks>
-    /// The step's own background work no longer calls itself through this reference; it reaches its activation
-    /// through <see cref="TryInvokeOnActivation{T}"/>.
+    /// The library no longer uses this reference: since 1.19.0 a step's background work reaches its activation
+    /// through <see cref="TryInvokeOnActivation{T}"/>. A call through this reference made while the activation
+    /// deactivates is held and then delivered to a new activation, so step work should not use it either.
     /// </remarks>
     /// <returns>The grain reference to this step.</returns>
     protected virtual IJobStep<TRequest, TResult, TState> GetReferenceToSelf() => this.AsReference<IJobStep<TRequest, TResult, TState>>();

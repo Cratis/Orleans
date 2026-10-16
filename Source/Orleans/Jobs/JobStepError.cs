@@ -25,7 +25,8 @@ public enum JobStepError
 
     /// <summary>
     /// The step did not settle within <see cref="JobsOptions.StepStopTimeout"/>. The step is not quiescent: its
-    /// work may still be running, nothing was persisted for the stop and nothing was reported to the job.
+    /// work may still be running and nothing has been recorded or reported for the stop yet. The step reports and
+    /// records its outcome once, when the work settles.
     /// </summary>
     StopTimedOut = 3
 }

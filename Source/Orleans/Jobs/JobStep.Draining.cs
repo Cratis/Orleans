@@ -13,8 +13,9 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     /// Cancels the work and waits for it and its activation callbacks to settle, bounded by
     /// <see cref="JobsOptions.StepStopTimeout"/>. Then the outcome is reported to the job without this call waiting
     /// for the job: an outcome the work recorded before the stop stays, otherwise the step reports itself stopped.
-    /// A step that does not settle in time answers <see cref="JobStepError.StopTimedOut"/>, records nothing and is
-    /// not quiescent.
+    /// A step that does not settle in time answers <see cref="JobStepError.StopTimedOut"/> and is not quiescent; it
+    /// still reports its outcome once, when the work does settle. A stop of a run that is already stopping joins
+    /// that stop.
     /// </remarks>
     public async Task<Result<JobStepError>> Stop(bool removing)
     {
@@ -82,48 +83,21 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
         logger.Stopping();
 
-        // A step without live work still reports its stop through a run, so a new start waits for that report.
+        // Nothing here yields until the run carries its stop, so no start or second stop can see it settled.
         var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun();
         run.BeginDrain(removing ? JobStepRunPhase.Removing : JobStepRunPhase.Stopping);
+        run.Stop ??= FinishStop(run);
+
         var elapsed = Stopwatch.StartNew();
-        try
+        if (await Settled(run.StopClaimed, deadline))
         {
-            if (!await Drained(run, deadline))
-            {
-                return StopTimedOut(run, elapsed);
-            }
-
-            await _gate.WaitAsync(deadline);
-            (bool Claimed, JobStepResult? Outcome) stop;
-            try
-            {
-                stop = await ClaimStopOutcome(run);
-            }
-            finally
-            {
-                _gate.Release();
-            }
-
-            if (stop.Outcome is not null)
-            {
-                StartDelivery(run, stop.Outcome);
-            }
-            else if (removing && stop.Claimed)
-            {
-                _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Removing);
-            }
             return Result.Success<JobStepError>();
         }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
-        {
-            return StopTimedOut(run, elapsed);
-        }
-        catch (Exception ex)
-        {
-            logger.FailedUnexpectedly(ex);
-            _ = await WriteStatusChangeUnderGate(null, JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
-            return JobStepError.Unknown;
-        }
+
+        // The stop goes on: it reports the outcome once the work settles, whenever that is.
+        run.CloseAdmission();
+        logger.StopTimedOut(Name, JobStepId, JobId, elapsed.Elapsed, run.DescribeUnsettled());
+        return JobStepError.StopTimedOut;
     }
 
     JobStepRun StartStopOnlyRun()
@@ -134,20 +108,59 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         return run;
     }
 
-    async Task<(bool Claimed, JobStepResult? Outcome)> ClaimStopOutcome(JobStepRun run)
+    async Task FinishStop(JobStepRun run)
+    {
+        try
+        {
+            // Not bounded: a stop that timed out for its caller still owes the job exactly one outcome.
+            _ = await Drained(run, CancellationToken.None);
+            await _gate.WaitAsync();
+            try
+            {
+                // A deactivated activation reports nothing; recovery runs the step again.
+                if (IsCurrent(run) && await ClaimStopOutcome(run) is { } outcome)
+                {
+                    StartDelivery(run, outcome);
+                }
+            }
+            finally
+            {
+                _gate.Release();
+                run.Claimed();
+            }
+
+            // Whoever delivers - the work or this stop - a removed step is removed once that delivery is done.
+            await run.DeliverySettled;
+            if (run.Phase is JobStepRunPhase.Removing)
+            {
+                _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Removing);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
+            _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
+        }
+        finally
+        {
+            run.Claimed();
+        }
+    }
+
+    async Task<JobStepResult?> ClaimStopOutcome(JobStepRun run)
     {
         run.CloseAdmission();
 
         // The work delivers an outcome it recorded while it was running; an earlier success stays a success.
         if (!run.TryClaimDelivery())
         {
-            return (false, null);
+            return null;
         }
         if (run.Outcome is null && State.IsPrepared)
         {
             run.TryRecord(await CreateStoppedOutcome());
         }
-        return (true, run.Outcome);
+        return run.Outcome;
     }
 
     async Task<JobStepResult> CreateStoppedOutcome()
@@ -165,13 +178,6 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             logger.FailedUnexpectedly(ex);
             return JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult());
         }
-    }
-
-    Result<JobStepError> StopTimedOut(JobStepRun run, Stopwatch elapsed)
-    {
-        run.CloseAdmission();
-        logger.StopTimedOut(Name, JobStepId, JobId, elapsed.Elapsed, run.DescribeUnsettled());
-        return JobStepError.StopTimedOut;
     }
 
     async Task DrainForDeactivation(CancellationToken deadline)
@@ -203,6 +209,12 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
     async Task Deliver(JobStepRun run, JobStepResult outcome)
     {
+        // Never report for a run the activation no longer owns; recovery runs the step again.
+        if (!IsCurrent(run))
+        {
+            return;
+        }
+
         try
         {
             if (outcome.TryGetError(out var error))
@@ -225,12 +237,6 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
         finally
         {
-            // A step whose job is removed is removed once its outcome was delivered or could not be, whichever
-            // of the work or the stop owns the delivery.
-            if (run.Phase is JobStepRunPhase.Removing)
-            {
-                _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Removing);
-            }
             if (IsCurrent(run))
             {
                 TryDeactivateOnIdle();
@@ -243,6 +249,12 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         // Success is persisted before it is reported.
         if ((await WriteStatusChangeUnderGate(run, JobStepStatus.CompletedSuccessfully)).TryGetError(out var errorChangingStatus))
         {
+            // A success that could not be persisted because the activation no longer owns the run is not reported:
+            // the step is still Running in storage, and recovery runs it again.
+            if (!IsCurrent(run))
+            {
+                return;
+            }
             logger.PerformingWorkFailedPersistState(errorChangingStatus);
             _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Failed, ["Error reporting job step succeeded"]);
         }
