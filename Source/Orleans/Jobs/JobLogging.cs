@@ -179,6 +179,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Information, "Job continued a pending drain after activation: {Status}")]
     internal static partial void CompletedPendingDrainAfterActivation(this ILogger<IJob> logger, JobDrainStatus status);
 
+    [LoggerMessage(LogLevel.Warning, "Job drain found steps in storage that are neither stopped nor completed; the drain stays pending")]
+    internal static partial void DrainLeftStepsUnaccounted(this ILogger<IJob> logger);
+
     [LoggerMessage(LogLevel.Warning, "Job failed continuing a pending drain after activation")]
     internal static partial void FailedCompletingPendingDrain(this ILogger<IJob> logger, Exception ex);
 }

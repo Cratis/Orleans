@@ -96,6 +96,9 @@ public abstract partial class Job<TRequest, TJobState>
             await FindStepsToDrain();
         }
 
+        // Reports are judged against this activation's tracking only once the drain it builds on is durable.
+        _hasLiveStepTracking = true;
+
         foreach (var (stepId, result) in await DrainEach(_drainTargets!, timeout, elapsed))
         {
             await AccountForDrainedStep(stepId, result);
@@ -103,11 +106,22 @@ public abstract partial class Job<TRequest, TJobState>
         if (_drainTargets!.Count > 0)
         {
             _logger.DrainTimedOut(_drainTargets.Count);
-            _ = await WriteState();
-            return JobDrainStatus.TimedOut;
+            return await DrainNotSettled();
         }
 
         return await SettleDrain();
+    }
+
+    async Task<JobDrainStatus> DrainNotSettled()
+    {
+        // An activation that did not see every step's outcome recounts from what the steps persisted. One that tracked
+        // its steps keeps its own counts: a failure is reported before the step persists it, so storage can lag them.
+        if (_drainReconcilesFromSteps)
+        {
+            await ReconcileProgressFromJobSteps(countStopped: true);
+        }
+        _ = await WriteState();
+        return JobDrainStatus.TimedOut;
     }
 
     async Task FindStepsToDrain()
@@ -132,7 +146,6 @@ public abstract partial class Job<TRequest, TJobState>
 
         // Steps in a stage that never started have nothing to drain.
         _drainTargets = targets.Where(_ => IsInStartedStage(_.Key)).ToDictionary(_ => _.Key, _ => _.Value);
-        _hasLiveStepTracking = true;
     }
 
     bool IsInStartedStage(JobStepId stepId) =>
@@ -234,9 +247,17 @@ public abstract partial class Job<TRequest, TJobState>
     async Task<JobDrainStatus> SettleDrain()
     {
         // Counts kept by an activation that did not see every step's outcome are recounted from what the steps persisted.
-        if (_drainReconcilesFromSteps || !(State.Progress.IsStopped || State.Progress.IsCompleted))
+        if ((_drainReconcilesFromSteps || !(State.Progress.IsStopped || State.Progress.IsCompleted)) &&
+            await ReconcileProgressFromJobSteps(countStopped: true) is null)
         {
-            await ReconcileProgressFromJobSteps(countStopped: true);
+            return await DrainNotSettled();
+        }
+
+        // Drained promises that the stopped hook ran, which it does only for progress with nothing left to run.
+        if (!(State.Progress.IsStopped || State.Progress.IsCompleted))
+        {
+            _logger.DrainLeftStepsUnaccounted();
+            return await DrainNotSettled();
         }
 
         State.DrainPending = false;

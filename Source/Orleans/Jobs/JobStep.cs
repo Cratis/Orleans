@@ -43,6 +43,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     readonly SemaphoreSlim _gate = new(1, 1);
     JobStepRun? _run;
     PendingStart? _pendingStart;
+    bool _deactivateWhenDrained;
     IGrainTimer? _pendingStartTimer;
     long _lastRunId;
     bool _deactivated;

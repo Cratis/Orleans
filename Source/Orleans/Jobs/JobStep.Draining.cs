@@ -29,6 +29,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     /// outcome is claimed and persists it under the gate. Waiting never closes admission: the stop does that at its
     /// own deadline. The outcome is still reported to the job, which ignores it once the drain has accounted for it.
     /// A persisted success removes the step's record, so its result cannot be read back from step storage later.
+    /// A drain that reaches an activation while it deactivates answers not drained once its wait ends: deactivating
+    /// leaves the step to recovery rather than claiming its outcome. The next drain reaches the new activation.
     /// </remarks>
     public async Task<JobStepDrainResult> Drain(long generation, TimeSpan timeout)
     {
@@ -37,42 +39,17 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         // The generation comes as an argument; one inherited from the caller must not flow into the stop or its report.
         _ = JobExecutionGeneration.Take();
 
-        // The job drains its current execution; nothing deferred may start after it.
+        // The job drains its current execution; nothing deferred may start after it. The activation stayed only for
+        // that start, so once drained it deactivates as it would have after its stop.
+        _deactivateWhenDrained |= _pendingStart is not null;
         _pendingStart = null;
-        if (_run is not { IsSettled: false } && State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed or JobStepStatus.Stopped)
+        var result = await DrainRun(generation, timeout);
+        if (result.Drained && _deactivateWhenDrained)
         {
-            return new(true, State.Status, _run?.Outcome);
+            _deactivateWhenDrained = false;
+            TryDeactivateOnIdle();
         }
-
-        // Nothing here yields until the run carries its stop, as for any other stop.
-        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
-        if (!run.IsDraining)
-        {
-            run.BeginDrain(JobStepRunPhase.Stopping);
-            run.Stop ??= FinishStop(run);
-            _ = ClaimWithinStopTimeout(run);
-        }
-
-        using var wait = new CancellationTokenSource(timeout);
-        if (!await Settled(run.StopClaimed, wait.Token))
-        {
-            logger.NotDrainedInTime(timeout);
-            return new(false, State.Status, null);
-        }
-
-        await _gate.WaitAsync();
-        try
-        {
-            if (!IsCurrent(run))
-            {
-                return new(false, State.Status, null);
-            }
-            return await PersistDrainedOutcome(run);
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        return result;
     }
 
     /// <inheritdoc/>
@@ -119,6 +96,44 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
     static bool IsLaterGeneration(long? generation, long? than) =>
         generation is { } value && (than is not { } other || value > other);
+
+    async Task<JobStepDrainResult> DrainRun(long generation, TimeSpan timeout)
+    {
+        if (_run is not { IsSettled: false } && State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed or JobStepStatus.Stopped)
+        {
+            return new(true, State.Status, _run?.Outcome);
+        }
+
+        // Nothing here yields until the run carries its stop, as for any other stop.
+        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
+        if (!run.IsDraining)
+        {
+            run.BeginDrain(JobStepRunPhase.Stopping);
+            run.Stop ??= FinishStop(run);
+            _ = ClaimWithinStopTimeout(run);
+        }
+
+        using var wait = new CancellationTokenSource(timeout);
+        if (!await Settled(run.StopClaimed, wait.Token))
+        {
+            logger.NotDrainedInTime(timeout);
+            return new(false, State.Status, null);
+        }
+
+        await _gate.WaitAsync();
+        try
+        {
+            if (!IsCurrent(run))
+            {
+                return new(false, State.Status, null);
+            }
+            return await PersistDrainedOutcome(run);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
     Task AcceptStop(bool removing, long? generation)
     {
