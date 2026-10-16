@@ -56,6 +56,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Debug, "Not starting the job steps because the job is no longer preparing, it is {Status}")]
     public static partial void NotStartingJobStepsForJobThatIsNoLongerPreparing(this ILogger<IJob> logger, JobStatus status);
 
+    [LoggerMessage(LogLevel.Debug, "Ignoring late outcome from step {JobStepId}; job no longer accepts it in status {Status}")]
+    public static partial void IgnoringLateStepOutcome(this ILogger<IJob> logger, JobStepId jobStepId, JobStatus status);
+
     [LoggerMessage(LogLevel.Trace, "Step {JobStepId} successfully completed")]
     public static partial void StepSuccessfullyCompleted(this ILogger<IJob> logger, JobStepId jobStepId);
 

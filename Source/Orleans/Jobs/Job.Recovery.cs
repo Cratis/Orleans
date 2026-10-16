@@ -28,7 +28,8 @@ public abstract partial class Job<TRequest, TJobState>
             return await ResumeCurrentStage(tracked, reportAlreadyRunning: true);
         }
 
-        // A cold activation has no in-flight reports of its own, so reconstruct from durable state.
+        // Reconstruct a cold activation from durable state. A surviving step can still have an outcome queued
+        // behind this resume; outcome handlers must ignore it if reconstruction finalizes or clears the job.
         _jobStepGrains = resumable;
         if (_jobStepGrains.Count == 0)
         {

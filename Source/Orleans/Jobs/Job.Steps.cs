@@ -21,6 +21,10 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
+        if (await IgnoreLateStepOutcome(stepId))
+        {
+            return Result.Success<JobError>();
+        }
         _logger.StepSuccessfullyCompleted(stepId);
         State.Progress.SuccessfulSteps++;
         CountStepOutcomeInStage(stepId, succeeded: true);
@@ -31,6 +35,10 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepStopped(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
+        if (await IgnoreLateStepOutcome(stepId))
+        {
+            return Result.Success<JobError>();
+        }
         _logger.StepStopped(stepId);
         State.Progress.StoppedSteps++;
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -40,6 +48,10 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
+        if (await IgnoreLateStepOutcome(stepId))
+        {
+            return Result.Success<JobError>();
+        }
         _logger.StepFailed(stepId);
         State.Progress.FailedSteps++;
         CountStepOutcomeInStage(stepId, succeeded: false);
