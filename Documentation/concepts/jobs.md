@@ -181,13 +181,128 @@ A step hands its outcome to the job through `JobStepResult`, not through its sto
 `OnStepCompletedOrStopped` override receives results for successful, failed, and stopped steps; use it to
 copy anything the job must retain into job state.
 
-`PerformStep` receives a snapshot through the step's grain-reference `GetState()` call. That snapshot does
-not see later writes to the step's state, and changing the snapshot does not persist those changes.
+`PerformStep` receives a deep copy of the step's state, taken when the step is marked `Running`. That copy
+does not see later writes to the step's state, and changing it does not persist anything. To change the
+state while the work runs, use an activation callback (see the next section). The copy comes from Orleans'
+`DeepCopier<TState>`, which every silo registers through its serializer. A test host without one, such as an
+Orleans.TestKit silo, must register `DeepCopier<TState>` itself; otherwise the step fails with a message that
+names the missing copier.
 
 Since v1.16.2, the framework reports a prepared step stopped before or during its work to the job exactly
 once. Deactivation without an explicit stop leaves scheduled work recoverable for resume instead of
 reporting it as stopped. Do not add cancellation reporting in a job step's `PerformWork` override: the
 framework already reports it, and reporting it again makes the job count the stop twice.
+
+## A step's work reaches its grain through activation callbacks
+
+`PerformStep` runs in the background, outside the grain's turn. Work that needs to move a checkpoint
+forward has to get back onto the step's own activation. The tempting route is a call to the step's own
+grain reference. Don't take it: while the activation deactivates, Orleans holds that call and later
+delivers it to a *new* activation. Your old work then writes state through a grain it no longer owns,
+after the step has stopped.
+
+Since v1.19.0, `JobStep` offers `TryInvokeOnActivation` instead. The callback runs directly on this
+activation, also while it deactivates, and in turn with every other callback and status write of the step.
+This excerpt is from a step whose state type has a `Position` property:
+
+```csharp
+var checkpoint = await TryInvokeOnActivation(async () =>
+{
+    State.Position = nextPosition;
+    await WriteCheckpointDebounced();
+});
+
+if (!checkpoint.IsSuccess)
+{
+    // The run was stopped or replaced: stop working rather than writing anywhere else.
+    return JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult());
+}
+```
+
+A refused callback never ran. The `ActivationCallbackRejected` reason says why:
+
+| Reason | Meaning |
+| --- | --- |
+| `NoRun` | The call did not come from the background work of a step run |
+| `StaleRun` | The work belongs to an earlier run of this activation |
+| `Closed` | The run was stopped, deactivated or timed out and takes no more callbacks |
+| `Cancelled` | The optional `queueCancellationToken` was cancelled while the callback waited its turn |
+
+A callback that has started always runs to completion, which is how a final checkpoint written while the
+work is being cancelled still lands. The generic overload returns the callback's value.
+
+### Keep callbacks local: capture, call out, commit
+
+A callback holds the step's gate, so it may only change local state and write it. Never call another grain
+or a remote system from inside it, never start work it does not await, and never wait inside a callback
+for a second callback - the second one waits for the first to finish. When a checkpoint depends on remote
+work, split it in three:
+
+```csharp
+// 1. Capture the inputs on the activation; copy them, do not hand out live state.
+var captured = await TryInvokeOnActivation(() => Task.FromResult(State.Pending.ToArray()));
+if (!captured.TryGetResult(out var pending))
+{
+    return JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult());
+}
+
+// 2. Do the remote work outside the gate.
+await sink.Write(pending, cancellationToken);
+
+// 3. Commit on the activation. This is refused if the run was stopped in between.
+var committed = await TryInvokeOnActivation(async () =>
+{
+    State.Pending.Clear();
+    await WriteStateAsync();
+});
+```
+
+`State.Pending` and `sink` stand in for your own state and remote collaborator. If the commit is refused,
+the remote write has happened but the checkpoint has not, so the work runs again from the last checkpoint
+after recovery - the same at-least-once rule as any other crash.
+
+## Stopping and deactivating wait for the work
+
+Stopping a step or deactivating its grain cancels the work and then waits for it, and for any callback it
+has started, before anything else happens. One deadline covers the whole wait:
+
+| Trigger | Waits up to | Then |
+| --- | --- | --- |
+| `IJobStep.Stop` | `JobsOptions.StepStopTimeout` (10 seconds) | Starts reporting exactly one outcome to the job and answers `Success`; after the deadline it answers `StopTimedOut` and reports the outcome once the work settles |
+| The job stops or is removed | Nothing: the job is answered as soon as cancellation is requested, so it never waits on its own step | Reports exactly one outcome once the work settles, and a removed step is then removed from storage |
+| Deactivation, such as a graceful silo shutdown | Orleans' deactivation timeout | Writes no final status and reports nothing: the step stays `Scheduled` or `Running` for recovery |
+
+A second stop, or a removal, that arrives while a stop is still in progress joins it: the job still hears
+about the step once.
+
+The outcome is the one the work produced. If the work finished successfully just as the stop came in, the
+step reports success, not a stop. The order of writes is unchanged: a failure or stop is reported to the job
+first and persisted once the job accepts it, and success is persisted first and then reported.
+
+:::caution[A timed-out stop is not quiescent]
+When the work does not settle in time, `Stop` answers `JobStepError.StopTimedOut` and has recorded nothing
+yet. The work may still be running; from then on its callbacks are refused with `Closed`, and I/O it had
+already issued cannot be called back. The stop goes on in the background: once the work settles, the step
+reports itself stopped and records it, exactly once. Treat a timed-out step as not stopped until then, and
+keep `StepStopTimeout` below the Orleans response timeout so the caller sees this answer rather than a
+timed-out call.
+:::
+
+Some limits remain:
+
+- A step deactivated while its job keeps running is not started again until recovery or `Resume()`, as
+  before.
+- A report already sent to the job when the activation deactivates is not withdrawn, and the step does not
+  persist anything for it afterwards. After a graceful shutdown the job may therefore have accepted a stop
+  or failure while the step's stored status is still `Running`; recovery runs the step again. A later release
+  makes this exact with execution tokens.
+- A step whose work still calls its own grain reference instead of `TryInvokeOnActivation` makes
+  deactivation wait for that work, up to Orleans' deactivation timeout, because the held call cannot complete
+  until the activation is gone. Move such calls to `TryInvokeOnActivation`.
+- A start is refused with `StartJobStepError.AlreadyStarted` while the previous run's work, callbacks or
+  outcome report are still in flight. A job resumed while a step's stop is still pending therefore treats
+  that step as live, and the step's late stop report then reaches the running job. A later release fences
+  this with execution tokens.
 
 ## Deliver outside input to the job, not its steps
 

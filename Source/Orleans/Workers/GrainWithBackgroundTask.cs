@@ -20,7 +20,14 @@ public abstract class GrainWithBackgroundTask<TRequest, TResult> : Grain, IGrain
     GrainWithBackgroundTaskStatus _status = GrainWithBackgroundTaskStatus.NotStarted;
     Result<None, Exception> _exception = default(None);
     Task? _task;
+    Task _work = Task.CompletedTask;
     Result<PerformWorkResult<TResult>, WorkerGetResultError> _result = WorkerGetResultError.NotStarted;
+
+    /// <summary>
+    /// Gets the whole background task of the last started work, including the cleanup that runs after the work
+    /// returns. Completed when no work has been started.
+    /// </summary>
+    private protected Task WorkSettled => _work;
 
     /// <inheritdoc/>
     public override Task OnActivateAsync(CancellationToken cancellationToken)
@@ -65,7 +72,7 @@ public abstract class GrainWithBackgroundTask<TRequest, TResult> : Grain, IGrain
 
         _logger?.StartingTask();
         _status = GrainWithBackgroundTaskStatus.Running;
-        _task = CreateTask(cancellationToken);
+        _work = _task = CreateTask(cancellationToken);
 
         return Task.FromResult(true);
     }

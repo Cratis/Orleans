@@ -39,9 +39,16 @@ public class IntegrationJobStopSignals
     public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
-    /// Gets the work's outcome after all reporting and persistence have completed.
+    /// Gets the work's outcome once the background work has returned. The step reports and persists its outcome
+    /// after this, see <see cref="StepDeactivating"/>.
     /// </summary>
     public TaskCompletionSource<PerformWorkResult<JobStepResult>> WorkCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets the signal that the step began deactivating, which it asks for once its outcome is reported and
+    /// persisted.
+    /// </summary>
+    public TaskCompletionSource StepDeactivating { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
     /// Registers signals for the job the specification is about to start.

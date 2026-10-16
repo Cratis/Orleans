@@ -37,6 +37,13 @@ public class IntegrationJobStep(
     }
 
     /// <inheritdoc/>
+    public override Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        IntegrationJobStopSignals.Find(JobId)?.StepDeactivating.TrySetResult();
+        return base.OnDeactivateAsync(reason, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
     {
         var signals = IntegrationJobStopSignals.Find(JobId);

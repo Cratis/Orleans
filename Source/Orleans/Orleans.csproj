@@ -22,6 +22,7 @@
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
     <ItemGroup>
+        <InternalsVisibleTo Include="Cratis.Orleans.Specs" />
         <None Include="buildTransitive/Cratis.Orleans.targets" Pack="true" PackagePath="buildTransitive" Visible="false" />
         <PackageReference Include="Microsoft.Orleans.Serialization" />
         <PackageReference Include="Microsoft.Orleans.Serialization.SystemTextJson" />

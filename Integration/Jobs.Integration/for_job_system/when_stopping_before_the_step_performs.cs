@@ -32,6 +32,9 @@ public class when_stopping_before_the_step_performs : Specification
         await manager.Stop(_jobId).WaitAsync(_deadline, TimeProvider.System);
         _signals.ContinueWork.TrySetResult();
         await _signals.WorkCompleted.Task.WaitAsync(_deadline, TimeProvider.System);
+
+        // The stop is delivered once the work has settled; the step deactivates after recording it.
+        await _signals.StepDeactivating.Task.WaitAsync(_deadline, TimeProvider.System);
         _jobState = (await manager.GetAllJobs()).Single(job => job.Id == _jobId);
         var storage = _fixture.Services.GetRequiredService<IJobsStorage>().GetFor(JobsClusterFixture.Scope, string.Empty);
         _stepState = (await storage.JobSteps.GetForJob(_jobId)).AsT0.Single();

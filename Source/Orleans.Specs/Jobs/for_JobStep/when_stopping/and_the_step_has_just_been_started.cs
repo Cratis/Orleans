@@ -14,6 +14,7 @@ public class and_the_step_has_just_been_started : given.a_job_step_with_a_gated_
         (await _jobStep.Start(GrainId.Create("job", _jobId.ToString()))).IsSuccess.ShouldBeTrue();
         (await _jobStep.Stop(false)).IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     [Fact] void should_cancel_the_work() => _result.Error.ShouldEqual(PerformWorkError.Cancelled);

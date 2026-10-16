@@ -13,6 +13,7 @@ public class and_the_step_was_stopped_in_this_activation : given.a_job_step_left
     {
         var stopped = await _jobStep.Stop(false);
         stopped.IsSuccess.ShouldBeTrue();
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     async Task Because() => _result = await _jobStep.Start(GrainId.Create("job", _jobId.ToString()));

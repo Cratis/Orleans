@@ -22,9 +22,11 @@ public class and_the_job_rejects_the_stop_report : given.a_job_step_with_a_gated
     {
         (await _jobStep.Stop(false)).IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
-    [Fact] void should_return_a_worker_error() => _result.Error.ShouldEqual(PerformWorkError.WorkerError);
+    [Fact] void should_cancel_the_work() => _result.Error.ShouldEqual(PerformWorkError.Cancelled);
+    [Fact] void should_not_record_the_step_as_stopped() => _persistedState.Status.ShouldNotEqual(JobStepStatus.Stopped);
     [Fact] async Task should_attempt_to_report_the_stop_once() => await _jobStep.ReportedJob.Received(1).OnStepStopped(_jobStepId, Arg.Any<JobStepResult>());
     [Fact] void should_not_perform_the_step() => _jobStep.Performed.Task.IsCompleted.ShouldBeFalse();
 }

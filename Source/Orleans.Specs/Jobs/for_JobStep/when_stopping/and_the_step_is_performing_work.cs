@@ -19,10 +19,12 @@ public class and_the_step_is_performing_work : given.a_job_step_left_scheduled_b
 
     async Task Because()
     {
-        var stopped = await _jobStep.Stop(false);
-        stopped.IsSuccess.ShouldBeTrue();
+        var stopping = _jobStep.Stop(false);
+        await _jobStep.PerformCancelled.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
         _jobStep.Gate.TrySetResult();
+        (await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System)).IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     [Fact] void should_cancel_the_token_supplied_to_the_step() => _jobStep.PerformToken.IsCancellationRequested.ShouldBeTrue();

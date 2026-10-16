@@ -21,5 +21,12 @@ public enum JobStepError
     /// <summary>
     /// Failed to report change in job step to job.
     /// </summary>
-    FailedToReportToJob = 2
+    FailedToReportToJob = 2,
+
+    /// <summary>
+    /// The step did not settle within <see cref="JobsOptions.StepStopTimeout"/>. The step is not quiescent: its
+    /// work may still be running and nothing has been recorded or reported for the stop yet. The step reports and
+    /// records its outcome once, when the work settles.
+    /// </summary>
+    StopTimedOut = 3
 }
