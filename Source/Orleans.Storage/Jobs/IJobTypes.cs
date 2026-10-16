@@ -16,7 +16,14 @@ public interface IJobTypes
     /// </summary>
     enum GetRequestClrTypeForError
     {
+        /// <summary>
+        /// The job type is not set.
+        /// </summary>
         JobTypeIsNotSet = 0,
+
+        /// <summary>
+        /// No CLR type could be found for the job type.
+        /// </summary>
         CouldNotFindType = 1
     }
 
@@ -25,7 +32,14 @@ public interface IJobTypes
     /// </summary>
     enum GetClrTypeForError
     {
+        /// <summary>
+        /// The job type is not set.
+        /// </summary>
         JobTypeIsNotSet = 0,
+
+        /// <summary>
+        /// No CLR type could be found for the job type.
+        /// </summary>
         CouldNotFindType = 1
     }
 
@@ -34,6 +48,9 @@ public interface IJobTypes
     /// </summary>
     enum GetForError
     {
+        /// <summary>
+        /// The type has no associated job type.
+        /// </summary>
         NoAssociatedJobType = 0
     }
 
