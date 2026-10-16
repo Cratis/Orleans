@@ -42,6 +42,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Work that outlived a timed-out stop may still release the gate; it holds no wait handle to free.")]
     readonly SemaphoreSlim _gate = new(1, 1);
     JobStepRun? _run;
+    PendingStart? _pendingStart;
+    IGrainTimer? _pendingStartTimer;
     long _lastRunId;
     bool _deactivated;
     IJob _job = new NullJob();
@@ -163,6 +165,15 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
 
         // Read and removed before anything else, so the generation never flows into the work or its calls.
         var generation = JobExecutionGeneration.Take();
+
+        // A job resumed while this step's stop of an earlier execution is still settling starts the step again once
+        // that stop has reported - never alongside it, and never by reporting the old stop as the new run's.
+        if (_run is { IsSettled: false, Phase: JobStepRunPhase.Stopping } stopping && IsLaterGeneration(generation, stopping.Generation))
+        {
+            logger.DeferringStartUntilStopSettles(generation!.Value);
+            _pendingStart = new(jobGrainId, generation.Value);
+            return Result.Success<StartJobStepError>();
+        }
 
         return await StartRun(jobGrainId, generation);
     }
@@ -374,6 +385,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
 
         var run = new JobStepRun(++_lastRunId, TaskScheduler.Current, generation);
         _run = run;
+        _pendingStart = null;
         _job = GetJob(jobGrainId);
         try
         {
@@ -447,6 +459,12 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
 
     void TryDeactivateOnIdle()
     {
+        // A deferred start runs on this activation; deactivating would lose it.
+        if (_pendingStart is not null)
+        {
+            return;
+        }
+
         try
         {
             DeactivateOnIdle();

@@ -52,6 +52,9 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
     }
 
+    static bool IsLaterGeneration(long? generation, long? than) =>
+        generation is { } value && (than is not { } other || value > other);
+
     Task AcceptStop(bool removing, long? generation)
     {
         // The job is notified from inside its own stop and cannot take the step's report until it returns, so
@@ -69,6 +72,16 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
     async Task<Result<JobStepError>> StopRun(bool removing, long? generation, CancellationToken deadline)
     {
+        // A stop of an earlier execution that arrives after the job resumed must not stop the resumed execution.
+        if (IsOfEarlierExecution(generation))
+        {
+            logger.IgnoringStopOfEarlierExecution(generation!.Value);
+            return Result.Success<JobStepError>();
+        }
+
+        // Any other stop wins over a start deferred until the previous stop settled.
+        _pendingStart = null;
+
         // A late notification must not replace a terminal outcome or report a second outcome to the job.
         if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
         {
@@ -145,6 +158,66 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         finally
         {
             run.Claimed();
+        }
+
+        // A start deferred until this stop settled runs in a turn of its own, once nothing of this run is in flight.
+        if (_pendingStart is not null && IsCurrent(run))
+        {
+            _pendingStartTimer ??= this.RegisterGrainTimer(
+                StartPending,
+                new GrainTimerCreationOptions { DueTime = TimeSpan.Zero, Period = Timeout.InfiniteTimeSpan });
+        }
+    }
+
+    bool IsOfEarlierExecution(long? generation) =>
+        generation is { } stop &&
+        (_pendingStart?.Generation ?? (_run is { IsSettled: false } live ? live.Generation : null)) is { } current &&
+        stop < current;
+
+    async Task StartPending(CancellationToken cancellationToken)
+    {
+        _pendingStartTimer?.Dispose();
+        _pendingStartTimer = null;
+        if (_pendingStart is not { } pending || _deactivated)
+        {
+            return;
+        }
+
+        _pendingStart = null;
+        using var scope = logger.BeginJobStepScope(State);
+        var started = await StartRun(pending.JobGrainId, pending.Generation);
+        if (!started.TryGetError(out var error))
+        {
+            return;
+        }
+
+        if (error is not (StartJobStepError.Completed or StartJobStepError.AlreadyStarted))
+        {
+            // The job counts the step as started in its new execution, so a start that cannot happen must reach it.
+            logger.DeferredStartFailed(error);
+            await ReportDeferredStartFailure(pending, error);
+        }
+        else
+        {
+            logger.DeferredStartNotNeeded(error);
+        }
+        TryDeactivateOnIdle();
+    }
+
+    async Task ReportDeferredStartFailure(PendingStart pending, StartJobStepError error)
+    {
+        try
+        {
+            using var generation = JobExecutionGeneration.Carry(pending.Generation);
+            var failure = PerformJobStepError.Failed([$"The step could not be started again after its stop: {error}"], string.Empty);
+            if ((await GetJob(pending.JobGrainId).OnStepFailed(JobStepId, JobStepResult.Failed(failure))).TryGetError(out var jobError))
+            {
+                logger.FailedReportJobStepFailure(jobError);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
         }
     }
 
@@ -286,4 +359,11 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             error.ErrorMessages,
             error.ExceptionStackTrace);
     }
+
+    /// <summary>
+    /// A start that waits for the stop of an earlier execution to settle.
+    /// </summary>
+    /// <param name="JobGrainId">The job that asked for the start.</param>
+    /// <param name="Generation">The job's execution generation the start belongs to.</param>
+    sealed record PendingStart(GrainId JobGrainId, long Generation);
 }

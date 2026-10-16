@@ -145,6 +145,15 @@ public static partial class JobLogMessages
 
     [LoggerMessage(LogLevel.Debug, "Not all steps was completed successfully")]
     public static partial void AllStepsNotCompletedSuccessfully(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job ignored a stop of job step {JobStepId} from earlier execution {Generation}; the step stays tracked")]
+    internal static partial void IgnoringStopOfEarlierExecution(this ILogger<IJob> logger, JobStepId jobStepId, long generation);
+
+    [LoggerMessage(LogLevel.Information, "Job ignored an outcome of job step {JobStepId} from earlier execution {Generation}; the step is no longer tracked")]
+    internal static partial void IgnoringOutcomeOfEarlierExecution(this ILogger<IJob> logger, JobStepId jobStepId, long generation);
+
+    [LoggerMessage(LogLevel.Information, "Job is starting {Count} job steps again whose stop of an earlier execution it ignored")]
+    internal static partial void RestartingStepsAfterEarlierStops(this ILogger<IJob> logger, int count);
 }
 
 public static class JobScopes
