@@ -20,10 +20,11 @@ public class and_a_throttle_slot_has_just_been_acquired : given.a_job_step_with_
 
     async Task Because()
     {
-        var stopped = await _jobStep.Stop(false);
-        stopped.IsSuccess.ShouldBeTrue();
+        var stopping = _jobStep.Stop(false);
         _throttle.ReturnSlot.TrySetResult();
+        (await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System)).IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     [Fact] void should_cancel_the_work() => _result.Error.ShouldEqual(PerformWorkError.Cancelled);

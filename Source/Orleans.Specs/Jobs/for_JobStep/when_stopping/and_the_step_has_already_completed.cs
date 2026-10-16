@@ -9,6 +9,7 @@ public class and_the_step_has_already_completed : given.a_job_step_left_schedule
     {
         await _jobStep.Start(GrainId.Create("job", _jobId.ToString()));
         await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
         _jobStep.ReportedJob.ClearReceivedCalls();
     }
 

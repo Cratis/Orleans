@@ -21,6 +21,7 @@ public class and_the_step_is_waiting_on_the_throttle : given.a_job_step_with_a_g
         var stopped = await _jobStep.Stop(false);
         stopped.IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
     [Fact] void should_cancel_the_work() => _result.Error.ShouldEqual(PerformWorkError.Cancelled);

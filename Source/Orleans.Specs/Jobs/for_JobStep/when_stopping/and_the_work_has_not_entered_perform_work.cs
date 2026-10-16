@@ -20,10 +20,11 @@ public class and_the_work_has_not_entered_perform_work : given.a_job_step_left_s
 
     async Task Because()
     {
-        var stopped = await _jobStep.Stop(false);
-        stopped.IsSuccess.ShouldBeTrue();
+        var stopping = _jobStep.Stop(false);
         _jobStep.WorkGate.TrySetResult();
+        (await stopping.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System)).IsSuccess.ShouldBeTrue();
         _result = await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
         (await _jobStep.Stop(false)).IsSuccess.ShouldBeTrue();
     }
 

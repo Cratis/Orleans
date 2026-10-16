@@ -2,8 +2,11 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Orleans.Storage.Jobs;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Orleans.Serialization;
 using Orleans.TestKit;
 
 namespace Cratis.Orleans.Jobs.for_JobStep.given;
@@ -20,6 +23,7 @@ public class a_job_step_left_scheduled_by_a_dead_process : Specification
     protected JobId _jobId;
     protected JobStepId _jobStepId;
     protected JobStepState _persistedState;
+    protected StepStorage _storage;
 
     async Task Establish()
     {
@@ -33,13 +37,21 @@ public class a_job_step_left_scheduled_by_a_dead_process : Specification
             Status = JobStepStatus.Scheduled
         };
 
-        _silo.AddPersistentState(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps, _persistedState);
+        _storage = new(_persistedState);
+        _silo.AddPersistentStateStorage(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps, _storage);
+        _silo.AddService(Options.Create(new JobsOptions { StepCheckpointBatchInterval = 1, StepStopTimeout = StopTimeout }));
         _silo.AddService(CreateThrottle());
+        _silo.AddService(new ServiceCollection().AddCratisOrleansSerializers().BuildServiceProvider().GetRequiredService<DeepCopier<JobStepState>>());
         _silo.AddService<ILogger<SomeJobStepGrain>>(NullLogger<SomeJobStepGrain>.Instance);
 
         var key = new JobStepKey(_jobId, "event-store", "namespace");
         _jobStep = await _silo.CreateGrainAsync<SomeJobStepGrain>(_jobStepId, keyExtension: key);
     }
+
+    /// <summary>
+    /// Gets how long stopping the step waits for its work to settle.
+    /// </summary>
+    protected virtual TimeSpan StopTimeout => TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Creates the throttle used by the step in this specification.
