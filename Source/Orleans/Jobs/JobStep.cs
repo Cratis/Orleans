@@ -18,25 +18,40 @@ namespace Cratis.Orleans.Jobs;
 /// <typeparam name="TResult">Type of result for the step.</typeparam>
 /// <typeparam name="TState">Type of state for the step.</typeparam>
 /// <remarks>
+/// <para>
 /// Initializes a new instance of the <see cref="JobStep{TRequest, TResult, TState}"/> class.
+/// </para>
+/// <para>
+/// Each start creates a run. The run's background work reaches its own activation only through
+/// <see cref="TryInvokeOnActivation{T}"/>, never through calls to its own grain reference, so it keeps working
+/// while the activation deactivates. Stopping and deactivating cancel the work and wait for it, within a deadline,
+/// before the step records anything, and the run reports exactly one outcome to its job.
+/// </para>
 /// </remarks>
 /// <param name="state"><see cref="IPersistentState{TState}"/> for managing state of the job step.</param>
 /// <param name="throttle">The <see cref="IJobStepThrottle"/> for limiting parallel execution.</param>
 /// <param name="logger">The logger.</param>
 [KeepAlive]
-public abstract class JobStep<TRequest, TResult, TState>(
+public abstract partial class JobStep<TRequest, TResult, TState>(
     [PersistentState(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps)]
     IPersistentState<TState> state,
     IJobStepThrottle throttle,
     ILogger<JobStep<TRequest, TResult, TState>> logger) : GrainWithBackgroundTask<TRequest, JobStepResult>, IJobStep<TRequest, TResult, TState>, IJobObserver, IDisposable
     where TState : JobStepState
 {
-    IJobStep<TRequest, TResult, TState> _thisJobStep = null!;
-    CancellationTokenSource? _cancellationTokenSource = new();
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Work that outlived a timed-out stop may still release the gate; it holds no wait handle to free.")]
+    readonly SemaphoreSlim _gate = new(1, 1);
+    JobStepRun? _run;
+    long _lastRunId;
+    bool _deactivated;
     IJob _job = new NullJob();
-    bool _starting;
-    volatile bool _stopRequested;
     JobStepCheckpointDebounce _checkpoints = new(1);
+    TimeSpan _stopTimeout = new JobsOptions().StepStopTimeout;
+
+    /// <summary>
+    /// Gets the delivery of the current run's outcome, which no stop, deactivation or start awaits.
+    /// </summary>
+    internal Task OutcomeDelivery => _run?.DeliverySettled ?? Task.CompletedTask;
 
     /// <summary>
     /// Gets the <see cref="JobStepId"/> for this job step.
@@ -80,8 +95,9 @@ public abstract class JobStep<TRequest, TResult, TState>(
     /// <inheritdoc/>
     public void Dispose()
     {
-        _cancellationTokenSource?.Dispose();
-        _cancellationTokenSource = null;
+        // Backstop: nothing that outlives the activation may still be admitted onto it.
+        _deactivated = true;
+        _run?.CloseAdmission();
     }
 
     /// <inheritdoc/>
@@ -99,11 +115,10 @@ public abstract class JobStep<TRequest, TResult, TState>(
         state.State.Name = Name;
         state.State.Id = Identifier;
         state.State.Type = grainType;
-        _cancellationTokenSource?.Dispose();
-        _cancellationTokenSource = new();
 
         var jobs = ServiceProvider.GetService<IOptions<JobsOptions>>()?.Value;
         _checkpoints = new(jobs?.StepCheckpointBatchInterval ?? 1);
+        _stopTimeout = jobs?.StepStopTimeout ?? _stopTimeout;
 
         var flushInterval = jobs?.StepCheckpointFlushInterval ?? TimeSpan.Zero;
 
@@ -112,7 +127,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
         if (_checkpoints.BatchInterval > 1 && flushInterval > TimeSpan.Zero && !CheckpointAfterEveryBatch)
         {
             this.RegisterGrainTimer(
-                _ => FlushDebouncedCheckpoint(),
+                _ => UnderGate(FlushDebouncedCheckpoint),
                 new GrainTimerCreationOptions
                 {
                     DueTime = flushInterval,
@@ -123,16 +138,15 @@ public abstract class JobStep<TRequest, TResult, TState>(
 
     /// <inheritdoc/>
     /// <summary>
-    /// Cancels in-flight work and releases cancellation resources when the grain deactivates.
+    /// Cancels in-flight work and waits for it to settle, bounded by the deactivation's cancellation token. Nothing
+    /// is recorded or reported: the step stays recoverable.
     /// </summary>
     /// <param name="reason">The <see cref="DeactivationReason"/> for the deactivation.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> for the operation.</param>
     public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
     {
-        var cts = _cancellationTokenSource;
-        _cancellationTokenSource = null;
-        await (cts?.CancelAsync() ?? Task.CompletedTask);
-        cts?.Dispose();
+        await DrainForDeactivation(cancellationToken);
+        _deactivated = true;
         await base.OnDeactivateAsync(reason, cancellationToken);
     }
 
@@ -140,36 +154,31 @@ public abstract class JobStep<TRequest, TResult, TState>(
     public async Task<Result<StartJobStepError>> Start(GrainId jobGrainId)
     {
         using var scope = logger.BeginJobStepScope(State);
-        if (_starting)
+
+        // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
+        // on the parent. A run whose work, callbacks or delivery have not settled is still live.
+        if (_run is { IsSettled: false })
         {
             return StartJobStepError.AlreadyStarted;
         }
-        _starting = true;
+        if (!State.IsPrepared)
+        {
+            return StartJobStepError.NotPrepared;
+        }
+        switch (State.Status)
+        {
+            case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
+                return StartJobStepError.Completed;
+            case JobStepStatus.Failed:
+                return StartJobStepError.UnrecoverableFailedState;
+        }
+
+        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current);
+        _run = run;
+        _job = GetJob(jobGrainId);
         try
         {
-            if (!State.IsPrepared)
-            {
-                return StartJobStepError.NotPrepared;
-            }
-
-            // Reserve before yielding: Start may interleave with another Start or with a failure report
-            // waiting on the parent. Neither persisted status nor a flag that outlives the worker is liveness.
-            if (await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running)
-            {
-                return StartJobStepError.AlreadyStarted;
-            }
-            switch (State.Status)
-            {
-                case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
-                    return StartJobStepError.Completed;
-                case JobStepStatus.Failed:
-                    return StartJobStepError.UnrecoverableFailedState;
-            }
-            _ = GetCancellationTokenForNewWork();
-            _thisJobStep = GetReferenceToSelf();
-            _job = GetJob(jobGrainId);
-
-            return await DispatchPreparedWork();
+            return await DispatchPreparedWork(run);
         }
         catch (Exception ex)
         {
@@ -178,7 +187,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
         }
         finally
         {
-            _starting = false;
+            run.Started();
         }
     }
 
@@ -202,62 +211,15 @@ public abstract class JobStep<TRequest, TResult, TState>(
 
         State.IsPrepared = true;
         State.Stage = stage;
-        _ = await WriteStateAsync();
+        _ = await UnderGate(WriteStateAsync);
         return prepareResult;
-    }
-
-    /// <inheritdoc/>
-    public async Task<Result<JobStepError>> Stop(bool removing)
-    {
-        using var scope = logger.BeginJobStepScope(State);
-
-        // A late notification must not replace a terminal outcome or report a second outcome to the job.
-        if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
-        {
-            return Result.Success<JobStepError>();
-        }
-        try
-        {
-            if (!removing && State.Status is JobStepStatus.Stopped)
-            {
-                logger.AlreadyStopped();
-                TryDeactivateOnIdle();
-                return Result.Success<JobStepError>();
-            }
-
-            logger.Stopping();
-            var workerOwnsStop = await CancelWork();
-            if (!workerOwnsStop && State.IsPrepared)
-            {
-                await ReportStoppedFromCurrentState();
-            }
-            return Result.Success<JobStepError>();
-        }
-        catch (Exception ex)
-        {
-            logger.FailedUnexpectedly(ex);
-            _ = await WriteStatusChange(JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
-            return JobStepError.Unknown;
-        }
-        finally
-        {
-            if (removing)
-            {
-                var wasStopped = State.Status == JobStepStatus.Stopped;
-                _ = await WriteStatusChange(JobStepStatus.Removing);
-                if (wasStopped)
-                {
-                    TryDeactivateOnIdle();
-                }
-            }
-        }
     }
 
     /// <inheritdoc/>
     public async Task<Result<JobStepError>> ReportStatusChange(JobStepStatus status)
     {
         using var scope = logger.BeginJobStepScope(State);
-        return await WriteStatusChange(status);
+        return await WriteStatusChangeUnderGate(null, status);
     }
 
     /// <inheritdoc/>
@@ -266,16 +228,7 @@ public abstract class JobStep<TRequest, TResult, TState>(
         using var scope = logger.BeginJobStepScope(State);
         try
         {
-            var result = error.Cancelled
-                ? await _job.OnStepStopped(JobStepId, JobStepResult.Failed(error))
-                : await _job.OnStepFailed(JobStepId, JobStepResult.Failed(error));
-            return await result.Match(
-                _ => WriteStatusChange(error.Cancelled ? JobStepStatus.Stopped : JobStepStatus.CompletedWithFailure, error.ErrorMessages, error.ExceptionStackTrace),
-                onStepFailedError =>
-                {
-                    logger.FailedReportJobStepFailure(onStepFailedError);
-                    return Task.FromResult(Result.Failed(JobStepError.FailedToReportToJob));
-                });
+            return await ReportFailureToJob(null, error);
         }
         catch (Exception ex)
         {
@@ -301,26 +254,20 @@ public abstract class JobStep<TRequest, TResult, TState>(
                 },
                 async error =>
                 {
-                    _ = await WriteStatusChange(JobStepStatus.Failed, [error.ToString()]);
+                    _ = await WriteStatusChangeUnderGate(null, JobStepStatus.Failed, [error.ToString()]);
                     return Result.Failed(error);
                 });
         }
         catch (Exception ex)
         {
             logger.FailedPreparing(ex, Name);
-            _ = await WriteStatusChange(JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
+            _ = await WriteStatusChangeUnderGate(null, JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
             return PrepareJobStepError.Unknown;
         }
     }
 
     /// <inheritdoc/>
     public Task<TState> GetState() => Task.FromResult(State);
-
-    /// <inheritdoc/>
-    public Task OnJobStopped() => Stop(false);
-
-    /// <inheritdoc/>
-    public Task OnJobRemoved() => Stop(true);
 
     /// <summary>
     /// Prepare the step before it starts.
@@ -330,9 +277,12 @@ public abstract class JobStep<TRequest, TResult, TState>(
     protected abstract Task<Result<PrepareJobStepError>> PrepareStep(TRequest request);
 
     /// <summary>
-    /// Resolves the grain reference this step reports its own status changes through. Virtual so a
-    /// specification host without grain-reference plumbing can substitute the grain itself.
+    /// Resolves a grain reference to this step.
     /// </summary>
+    /// <remarks>
+    /// The step's own background work no longer calls itself through this reference; it reaches its activation
+    /// through <see cref="TryInvokeOnActivation{T}"/>.
+    /// </remarks>
     /// <returns>The grain reference to this step.</returns>
     protected virtual IJobStep<TRequest, TResult, TState> GetReferenceToSelf() => this.AsReference<IJobStep<TRequest, TResult, TState>>();
 
@@ -347,7 +297,12 @@ public abstract class JobStep<TRequest, TResult, TState>(
     /// <summary>
     /// The method that gets called when the step should do its work.
     /// </summary>
-    /// <remarks>When this is executed it is not within the Activation Context. If context needs to be accessed then it needs to be referenced indirectly through a reference to itself.</remarks>
+    /// <remarks>
+    /// This runs outside the activation, on a snapshot of the state. Reach the activation - to update
+    /// <see cref="State"/> or write a checkpoint - through <see cref="TryInvokeOnActivation{T}"/>, never through a
+    /// call to this grain's own reference: such a call is held while the activation deactivates and then reaches a
+    /// new activation.
+    /// </remarks>
     /// <param name="currentState">The current state of the job step.</param>
     /// <param name="cancellationToken">Cancellation token that can cancel the step work.</param>
     /// <returns>True if successful, false if not.</returns>
@@ -360,182 +315,6 @@ public abstract class JobStep<TRequest, TResult, TState>(
     /// <param name="request">The <typeparamref name="TRequest"/> initial request arguments.</param>
     /// <returns>The <see cref="ValueTask"/> representing the asynchronous operation.</returns>
     protected abstract ValueTask InitializeState(TRequest request);
-
-    /// <inheritdoc/>
-    protected override async Task<PerformWorkResult<JobStepResult>> PerformWork()
-    {
-        // Important! State cannot be accessed or persisted directly, we need do that through the grain reference...
-        var cancellationTokenSource = _cancellationTokenSource;
-        if (cancellationTokenSource?.IsCancellationRequested ?? true)
-        {
-            return await HandleCancellation();
-        }
-
-        // Capture the token before awaiting: stopping can clear and dispose the source while acquiring a slot.
-        CancellationToken cancellationToken;
-        try
-        {
-            cancellationToken = cancellationTokenSource.Token;
-            await throttle.AcquireAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
-        {
-            return await HandleCancellation();
-        }
-
-        try
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return await HandleCancellation();
-            }
-
-            using var scope = logger.BeginJobStepScope(Identifier, Name, JobStepStatus.Running);
-
-            // TODO: Should we do something here if it fails?
-            _ = await _thisJobStep.ReportStatusChange(JobStepStatus.Running);
-            var currentState = await _thisJobStep.GetState();
-            var performStepResult = await PerformStep(currentState, cancellationToken);
-            return await performStepResult.Match(HandleJobStepResult, HandleException);
-        }
-        finally
-        {
-            // Always release throttle slot after work completes (success or failure)
-            try
-            {
-                throttle.Release();
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-        }
-
-        async Task<PerformWorkResult<JobStepResult>> HandleCancellation()
-        {
-            // Deactivation leaves scheduled work recoverable; only an explicit stop reports an outcome.
-            if (!_stopRequested)
-            {
-                return new() { Error = PerformWorkError.Cancelled };
-            }
-
-            PerformJobStepError error;
-            try
-            {
-                var currentState = await _thisJobStep.GetState();
-                var result = await CreateCancelledResultFromCurrentState(currentState);
-                error = result is not null
-                    ? PerformJobStepError.CancelledWithPartialResult(result)
-                    : PerformJobStepError.CancelledWithNoResult();
-            }
-            catch (Exception ex)
-            {
-                // Without a partial result the stop must still reach the job, or the job never completes its stop.
-                logger.FailedUnexpectedly(ex);
-                error = PerformJobStepError.CancelledWithNoResult();
-            }
-
-            return await HandleJobStepResult(JobStepResult.Failed(error));
-        }
-
-        async Task<PerformWorkResult<JobStepResult>> HandleJobStepResult(JobStepResult jobStepResult)
-        {
-            var performWorkResult = new PerformWorkResult<JobStepResult>
-            {
-                Result = jobStepResult
-            };
-            try
-            {
-                if (!jobStepResult.TryGetError(out var error))
-                {
-                    if ((await _thisJobStep.ReportStatusChange(JobStepStatus.CompletedSuccessfully)).TryGetError(out var errorChangingStatus))
-                    {
-                        logger.PerformingWorkFailedPersistState(errorChangingStatus);
-                        performWorkResult = performWorkResult with
-                        {
-                            Error = PerformWorkError.WorkerError
-                        };
-                        _ = await WriteStatusChange(JobStepStatus.Failed, ["Error reporting job step succeeded"]);
-                    }
-
-                    if ((await _job.OnStepSucceeded(JobStepId, jobStepResult)).TryGetError(out var errorReportingSuccess))
-                    {
-                        logger.FailedReportJobStepSuccess(errorReportingSuccess);
-                        performWorkResult = performWorkResult with
-                        {
-                            Error = PerformWorkError.WorkerError
-                        };
-                        _ = await WriteStatusChange(JobStepStatus.Failed, ["Error reporting job step succeeded"]);
-                    }
-                }
-                else
-                {
-                    performWorkResult = performWorkResult with
-                    {
-                        Error = error.Cancelled ? PerformWorkError.Cancelled : PerformWorkError.PerformingWorkError
-                    };
-
-                    if ((await ReportError(error)).TryGetError(out var errorReportingFailure))
-                    {
-                        logger.FailedReportingJobStepCancelled(errorReportingFailure);
-                        performWorkResult = performWorkResult with
-                        {
-                            Error = errorReportingFailure
-                        };
-                    }
-                }
-                return performWorkResult;
-            }
-            catch (Exception ex)
-            {
-                logger.FailedUnexpectedly(ex);
-                return performWorkResult with
-                {
-                    Error = PerformWorkError.WorkerError
-                };
-            }
-            finally
-            {
-                try
-                {
-                    DeactivateOnIdle();
-                }
-                catch (InvalidOperationException)
-                {
-                    // Grain activation may already be invalid during silo shutdown.
-                }
-            }
-        }
-
-        async Task<PerformWorkResult<JobStepResult>> HandleException(Exception ex)
-        {
-            var performWorkResult = new PerformWorkResult<JobStepResult>
-            {
-                Exception = ex,
-                Error = PerformWorkError.PerformingWorkError
-            };
-            logger.HandleUnexpectedPerformJobStepFailure(ex);
-
-            // Deliberately don't handle error response from this call as it will be logged anyway.
-            await ReportError(PerformJobStepError.Failed(ex));
-            return performWorkResult;
-        }
-
-        async Task<Result<PerformWorkError>> ReportError(PerformJobStepError error)
-        {
-            try
-            {
-                logger.ReportFailurePerformingWork();
-                var reportFailureResult = await _thisJobStep.ReportFailure(error);
-                return reportFailureResult.Match(_ => Result<PerformWorkError>.Success(), _ => PerformWorkError.WorkerError);
-            }
-            catch (Exception ex)
-            {
-                logger.FailedUnexpectedly(ex);
-                _ = await WriteStatusChange(JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
-                return PerformWorkError.WorkerError;
-            }
-        }
-    }
 
     /// <summary>
     /// Saves the current grain state.
@@ -596,53 +375,59 @@ public abstract class JobStep<TRequest, TResult, TState>(
     /// <returns>The result.</returns>
     protected abstract ValueTask<TResult?> CreateCancelledResultFromCurrentState(TState currentState);
 
-    async Task<Result<StartJobStepError>> DispatchPreparedWork()
+    async Task<Result<StartJobStepError>> DispatchPreparedWork(JobStepRun run)
     {
         // Persist before dispatch so the worker cannot race its own reservation write.
         var previousStatus = State.Status;
-        if (!(await WriteStatusChange(JobStepStatus.Scheduled)).IsSuccess)
+        if (!(await WriteStatusChangeUnderGate(null, JobStepStatus.Scheduled)).IsSuccess)
         {
             return StartJobStepError.Unknown;
         }
 
-        // PerformWork owns cancellation reporting; the worker must not skip it after scheduling.
+        // A stop that began while Scheduled was written owns the outcome; nothing is launched for it to wait on.
+        if (run.IsDraining)
+        {
+            return Result.Success<StartJobStepError>();
+        }
+
         try
         {
-            if (await Start(CancellationToken.None))
+            if (await Dispatch(run))
             {
+                run.Running();
                 return Result.Success<StartJobStepError>();
             }
         }
         catch (Exception)
         {
-            _ = await WriteStatusChange(previousStatus);
+            _ = await WriteStatusChangeUnderGate(null, previousStatus);
             throw;
         }
 
         // A retained finished background task can refuse dispatch. Do not claim it is live or leave
         // a Scheduled reservation with no performer. The caller receives a startup failure.
-        _ = await WriteStatusChange(previousStatus);
+        _ = await WriteStatusChangeUnderGate(null, previousStatus);
         return StartJobStepError.Unknown;
     }
 
-    async Task<bool> CancelWork()
+    async Task<bool> Dispatch(JobStepRun run)
     {
-        // Cancellation can complete the worker before CancelAsync returns; capture report ownership first.
-        var workerOwnsStop = _starting || await GetWorkStatus() is GrainWithBackgroundTaskStatus.Running;
-        _stopRequested = true;
-        var cts = _cancellationTokenSource;
-        _cancellationTokenSource = null;
-        await (cts?.CancelAsync() ?? Task.CompletedTask);
-        cts?.Dispose();
-        return workerOwnsStop;
-    }
-
-    async Task ReportStoppedFromCurrentState()
-    {
-        var result = await CreateCancelledResultFromCurrentState(State);
-        await ReportFailure(result is not null
-            ? PerformJobStepError.CancelledWithPartialResult(result)
-            : PerformJobStepError.CancelledWithNoResult());
+        // The background task captures the run from this execution context; the work never reads _run.
+        var previous = JobStepRun.Current;
+        JobStepRun.Current = run;
+        try
+        {
+            if (!await Start(CancellationToken.None))
+            {
+                return false;
+            }
+            run.WorkerSettled = WorkSettled;
+            return true;
+        }
+        finally
+        {
+            JobStepRun.Current = previous;
+        }
     }
 
     void TryDeactivateOnIdle()
@@ -656,6 +441,35 @@ public abstract class JobStep<TRequest, TResult, TState>(
             // Grain activation may already be invalid during silo shutdown.
         }
     }
+
+    Task<Result<JobStepError>> WriteStatusChangeUnderGate(JobStepRun? run, JobStepStatus status, IEnumerable<string>? exceptionMessages = null, string? exceptionStackTrace = null) =>
+        UnderGate(() =>
+        {
+            // A delivery outlives the turn that started it: never write for a run the activation no longer owns.
+            if (run is not null && !IsCurrent(run))
+            {
+                logger.SkippedWriteForEndedRun(status);
+                return Task.FromResult<Result<JobStepError>>(JobStepError.Unknown);
+            }
+            return WriteStatusChange(status, exceptionMessages, exceptionStackTrace);
+        });
+
+    async Task<T> UnderGate<T>(Func<Task<T>> operation)
+    {
+        // Only gated entry points come through here; code already holding the gate calls the core directly,
+        // because the gate is not reentrant.
+        await _gate.WaitAsync();
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    bool IsCurrent(JobStepRun run) => !_deactivated && ReferenceEquals(run, _run);
 
     async Task<Result<JobStepError>> WriteStatusChange(JobStepStatus status, IEnumerable<string>? exceptionMessages = null, string? exceptionStackTrace = null)
     {
@@ -691,23 +505,5 @@ public abstract class JobStep<TRequest, TResult, TState>(
             ExceptionStackTrace = exceptionStackTrace ?? string.Empty
         });
         state.State.Status = status;
-    }
-
-    /// <summary>
-    /// Gets the cancellation token for new work, replacing a token source that a stop has cancelled or cleared.
-    /// </summary>
-    /// <returns>A <see cref="CancellationToken"/> that is not cancelled.</returns>
-    CancellationToken GetCancellationTokenForNewWork()
-    {
-        var cancellationTokenSource = _cancellationTokenSource;
-        if (cancellationTokenSource?.IsCancellationRequested ?? true)
-        {
-            cancellationTokenSource?.Dispose();
-            cancellationTokenSource = new();
-            _cancellationTokenSource = cancellationTokenSource;
-            _stopRequested = false;
-        }
-
-        return cancellationTokenSource.Token;
     }
 }
