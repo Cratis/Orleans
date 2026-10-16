@@ -14,6 +14,15 @@ public sealed class RecoveryJob(RecoverySignals signals, ILocalSiloDetails local
     protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryRequest request) =>
         Task.FromResult<IImmutableList<JobStepDetails>>([CreateStep<IRecoveryStep>(request)]);
 
+    protected override async Task OnBeforeResumingJobSteps()
+    {
+        if (signals.HoldFirstResume && signals.ResumeEntered.TrySetResult())
+        {
+            // Hold the first resume after Running is durable but before any step is restarted.
+            await signals.ReleaseResume.Task;
+        }
+    }
+
     protected override Task OnAllStepsCompleted()
     {
         signals.Completed.TrySetResult();

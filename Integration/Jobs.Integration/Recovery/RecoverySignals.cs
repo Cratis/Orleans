@@ -16,5 +16,9 @@ public sealed class RecoverySignals(string database)
     public TaskCompletionSource ReleaseRecovered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource StepStopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool HoldFirstResume { get; set; }
+    public TaskCompletionSource ResumeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseResume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public SemaphoreSlim RecoveryPasses { get; } = new(0);
 }
