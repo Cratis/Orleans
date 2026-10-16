@@ -79,6 +79,76 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
 
 A job is a grain of its own type, so Orleans only considers silos that have that job's class loaded. A silo that does not host a particular job never receives it. Among the silos that do host it, jobs use resource-optimized placement: a new job activates on the silo with the most headroom for CPU, memory and activations, rather than on whichever silo happened to receive the request that started it. Scaling a service out therefore spreads job load instead of pinning it to the busiest replica.
 
+## Starting, stopping and deleting jobs while two releases share a cluster
+
+During a rolling upgrade, a shared jobs manager may still run on the older release. Calling its generic
+`Start<TJob, TRequest>` or `GetJobsOfType<TJob, TRequest>` sends those types to that silo, which cannot decode a
+job or request introduced by the newer release. Use the singleton `IJobs` from `Cratis.Orleans.Jobs` for
+starting, stopping and deleting instead. `AddCratisOrleans` registers it with the host.
+
+`IJobs` is a local service, not a grain. It addresses the job grain directly from the caller's release;
+Orleans places that grain on a silo that hosts its type. No generic job or request type passes through the
+shared manager.
+
+For a Studio-shaped host, use the event store name as the scope and the tenant namespace as the namespace.
+This excerpt belongs in an existing host with Orleans and jobs storage configured. It assumes your
+serializable `RebuildIndexRequest : IJobRequest` and `IRebuildTenantIndex : IJob<RebuildIndexRequest>` grain:
+
+```csharp
+using System.Threading.Tasks;
+using Cratis.Monads;
+using Cratis.Orleans.Jobs;
+
+public class TenantJobs(IJobs jobs)
+{
+    public Task<Result<JobId, StartJobError>> Start(
+        string eventStoreName, string tenantNamespace, RebuildIndexRequest request) =>
+        jobs.Start<IRebuildTenantIndex, RebuildIndexRequest>(
+            new JobKey(eventStoreName, tenantNamespace), request);
+
+    public Task<StopJobResult> Stop(string eventStoreName, string tenantNamespace, JobId jobId) =>
+        jobs.Stop(new JobKey(eventStoreName, tenantNamespace), jobId);
+
+    public Task<DeleteJobResult> Delete(string eventStoreName, string tenantNamespace, JobId jobId) =>
+        jobs.Delete(new JobKey(eventStoreName, tenantNamespace), jobId);
+}
+```
+
+Start returns the job identity only when the job accepts the request; inspect `StartJobError` on refusal.
+Success means started, not completed. If you supply an identity with `Start(key, jobId, request)`, duplicate
+starts retain the job's existing refusal behavior rather than starting another plan.
+
+Stop and delete read only the stored job type, so an unreadable request from a newer release does not hide
+which release owns the job. Match their nested result records:
+
+| Outcome | Stop | Delete |
+| --- | --- | --- |
+| Accepted by the job | `StopJobResult.Stopped(JobId)` | `DeleteJobResult.Deleted(JobId)` |
+| No stored job | `StopJobResult.NotFound(JobId)` | `DeleteJobResult.NotFound(JobId)` |
+| Type unavailable in this release | `StopJobResult.UnknownJobType(JobId, JobType)` | `DeleteJobResult.UnknownJobType(JobId, JobType)` |
+| Refused by the job | `StopJobResult.Refused(JobId, StopJobError)` | `DeleteJobResult.Refused(JobId, RemoveJobError)` |
+
+An unknown type can belong to a newer release, or to a removed job. Neither operation resolves a grain or
+changes state in that case: route the operation to a release that knows the type. Storage exceptions and
+grain-call exceptions propagate; they are not reported as stopped or deleted. Delete preserves the manager's
+removal rules: it calls the job's `Remove`, including stopping its steps, and a completed job can refuse.
+Acceptance does not promise that every step has already finished its stop/removal callback. These result
+records stay local; they are not serialized across grains. Third-party storage providers should override
+`IJobStorage.GetJobType` with a metadata-only read; its compatibility fallback reads the full job and can
+still fail on an unknown request.
+
+Starting remembers the scope and namespace for recovery and touches the shared manager once per locally
+seen key with an existing non-generic query, keeping its normal cleanup activation. Start does not wait for
+that query, and a failed touch is logged without failing the job start. The job persists its preparation
+before answering, independently of the manager.
+
+Remembered keys are not a durable catalog. Register singleton `IJobsManagerKeys` providers on every silo
+for complete recovery, as described under [Rehydration](#rehydration). During release overlap, an older
+manager skips job types it does not know; those jobs can resume once their manager runs on a release that
+knows them and another recovery pass occurs. `IJobs` does not change that recovery boundary. The generic
+manager methods remain available for compatible single-version clusters; they have documentation warnings,
+not `[Obsolete]` build warnings.
+
 ## The job's state is its storage
 
 What a job remembers - its status, its progress, its request - persists through the jobs storage (see
@@ -186,7 +256,7 @@ work is running or prepare a replacement plan. Inspect or remove the job through
 ### Tell recovery which namespaces exist
 
 Storage scopes and namespaces are host-owned coordinates. Recovery cannot infer them from arbitrary database-name
-resolvers. Its default `JobsManagerKeys` provider remembers only managers activated on this silo. It logs a startup
+resolvers. Its default `JobsManagerKeys` provider remembers managers activated and keys started through `IJobs` on this silo. It logs a startup
 warning when no host provider is present: recovery is incomplete for a survivor that never served a key, and the
 in-memory catalog does not survive a process restart.
 

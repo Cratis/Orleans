@@ -34,6 +34,10 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// <typeparam name="TJob">Type of job to start.</typeparam>
     /// <typeparam name="TRequest">Type of the request to pass along.</typeparam>
     /// <returns>Awaitable task.</returns>
+    /// <remarks>
+    /// Unsafe while two releases share a cluster: the manager's silo must understand both generic types.
+    /// Use the caller-local <see cref="IJobs"/> to start jobs during rolling upgrades.
+    /// </remarks>
     Task<Result<JobId, StartJobError>> Start<TJob, TRequest>(TRequest request)
         where TJob : IJob<TRequest>
         where TRequest : class, IJobRequest;
@@ -41,7 +45,10 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// <summary>
     /// Start a new job.
     /// </summary>
-    /// <remarks>Mainly used for testing purposes.</remarks>
+    /// <remarks>
+    /// Mainly used for testing purposes. Unsafe while two releases share a cluster: the manager's silo
+    /// must understand both generic types. Use the caller-local <see cref="IJobs"/> during rolling upgrades.
+    /// </remarks>
     /// <param name="jobId">The <see cref="JobId"/>.</param>
     /// <param name="request">The request parameter being passed to the job.</param>
     /// <typeparam name="TJob">Type of job to start.</typeparam>
@@ -83,6 +90,10 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// <typeparam name="TJob">Type of job to get for.</typeparam>
     /// <typeparam name="TRequest">Type of request.</typeparam>
     /// <returns>Collection of job states.</returns>
+    /// <remarks>
+    /// Unsafe while two releases share a cluster: the manager's silo must understand both generic types.
+    /// Use <see cref="IJobs"/> for lifecycle operations and <see cref="GetJobs"/> for non-generic queries.
+    /// </remarks>
     Task<IImmutableList<JobState>> GetJobsOfType<TJob, TRequest>()
         where TJob : IJob<TRequest>
         where TRequest : class, IJobRequest;
