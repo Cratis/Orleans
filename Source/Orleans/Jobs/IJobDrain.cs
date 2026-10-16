@@ -33,6 +33,11 @@ public interface IJobDrain : IGrainWithGuidCompoundKey
     /// record from step storage once its success is persisted.
     /// </para>
     /// <para>
+    /// A drain completed after the job went away can run the step hook again for a step, or never: a successful step
+    /// whose report was lost has no record left to drain, and a step that answered the earlier drain answers again
+    /// without its outcome. Do not take a step's result from the hook alone; keep what you need in records of your own.
+    /// </para>
+    /// <para>
     /// The call holds the job's turn while it waits. Never await it with a timeout above zero from a grain turn that
     /// step work or the job's hooks call back into without interleaving - including the job's own grain; poll with
     /// <see cref="TimeSpan.Zero"/> instead.

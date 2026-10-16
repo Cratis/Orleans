@@ -318,9 +318,13 @@ it. When a resume overtakes a pending stop:
   was lost - starting is idempotent;
 - a late stop notification from the earlier execution does not stop the resumed run.
 
-A success or failure from an earlier execution still counts, once, while the job tracks the step. A step
-hosted by a silo older than v1.20.0, or a run started by a job on such a silo, carries no generation and keeps
-the earlier behavior.
+A success or failure from an earlier execution still counts, once. While the job tracks the step, it counts as
+reported. A resume that reloads the steps from storage no longer tracks a step whose success was persisted -
+that removes the step's record - so for such a report the job recounts its progress from step storage, which
+has the outcome, and moves its stages on. It does not run `OnStepCompletedOrStopped` for that report.
+
+A step hosted by a silo older than v1.20.0 reports no generation, even when a newer job started it, and a run
+started by a job on an older silo has none to report. Their reports keep the earlier behavior.
 
 ## Stop a job and wait until it is drained
 
@@ -352,7 +356,8 @@ answers. A step counts as drained only by its own answer; the report it sends th
 
 - no step's work or activation callback runs any more;
 - every step's outcome and last checkpoint is in step storage;
-- `OnStepCompletedOrStopped` has run for those steps, and `OnStopped` has run;
+- `OnStepCompletedOrStopped` has run for those steps - unless the job went away mid-drain, as described
+  below - and `OnStopped` has run;
 - the job's state is persisted.
 
 It does not cover work that your hooks or your step work start without awaiting it, such as a call to another
@@ -360,12 +365,15 @@ grain that nothing waits for, and it does not wait for calls already on their wa
 grains. Stamp such calls with a revision of your own, so their receiver can tell a late one apart. Nor does it
 keep a successful step's record: persisting a success deletes it (see
 [Step state](#step-state-lasts-only-as-long-as-the-step-needs-it)). Take what you need from a successful step
-through `OnStepCompletedOrStopped`, not only from step storage.
+through `OnStepCompletedOrStopped`, not only from step storage - but do not rely on the hook alone either: after
+a crash it can run again or not at all, as described below. Keep the results and positions you need in records
+of your own.
 
 The timeout is capped at half the Orleans response timeout less a margin, because the steps' own reports
 queue behind the drain. `TimeSpan.Zero` polls without waiting. Polling never cuts a step short: a step refuses
 its callbacks only once its own `StepStopTimeout` has passed since its stop began, so a final checkpoint still
-lands while you poll.
+lands while you poll. A step whose activation is deactivating when the drain reaches it answers as not drained;
+the next call drains the activation that follows.
 
 A drained job is a stopped job: `Resume()` runs it again, and automatic recovery leaves it alone. Asking again
 after `Drained` writes nothing and runs no hook.
@@ -374,6 +382,16 @@ The pending drain survives the job's silo. If that silo goes away mid-drain, the
 it is next activated - by your next call or any other call to it - and `Resume()` refuses it with
 `CannotResumeJobError.JobCannotBeResumed` until then. The hooks can therefore run again for the same steps,
 so `OnStepCompletedOrStopped` and `OnStopped` must tolerate running twice.
+
+A crash can also leave `OnStepCompletedOrStopped` never running for a step:
+
+- a successful step whose report did not reach the job before it went away has no record left, so the drain
+  neither asks it nor finds its outcome in step storage;
+- a step that persisted its stop and answered the drain before the job went away answers the completing
+  drain from a fresh activation, which no longer has the outcome to hand over.
+
+Nothing of the job runs any more in either case. Read a step's result from your own records or positions, not
+from the hook alone.
 
 :::caution[Do not wait for a drain from a grain your job calls back into]
 A drain with a timeout above zero holds the job's turn while it waits, and your call holds yours. If step work
