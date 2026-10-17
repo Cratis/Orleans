@@ -123,7 +123,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         await _gate.WaitAsync();
         try
         {
-            if (!IsCurrent(run))
+            if (!IsCurrent(run) || run.StopError is not null)
             {
                 return new(false, State.Status, null);
             }
@@ -152,6 +152,11 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
     async Task<Result<JobStepError>> StopRun(bool removing, long? generation, CancellationToken deadline)
     {
+        if (_deactivated)
+        {
+            return JobStepError.Unknown;
+        }
+
         // A stop of an earlier execution that arrives after the job resumed must not stop the resumed execution.
         if (IsOfEarlierExecution(generation))
         {
@@ -179,11 +184,14 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         // Nothing here yields until the run carries its stop, so no start or second stop can see it settled.
         var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
         run.BeginDrain(removing ? JobStepRunPhase.Removing : JobStepRunPhase.Stopping);
-        run.Stop ??= FinishStop(run);
+        run.Stop ??= FinishStop(run, deadline);
 
-        return await ClaimWithinDeadline(run, deadline)
-            ? Result.Success<JobStepError>()
-            : JobStepError.StopTimedOut;
+        if (!await ClaimWithinDeadline(run, deadline))
+        {
+            return _job is null && State.IsPrepared ? JobStepError.FailedToReportToJob : JobStepError.StopTimedOut;
+        }
+
+        return run.StopError is { } error ? error : Result.Success<JobStepError>();
     }
 
     async Task ClaimWithinStopTimeout(JobStepRun run)
@@ -239,19 +247,30 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         return run;
     }
 
-    async Task FinishStop(JobStepRun run)
+    async Task FinishStop(JobStepRun run, CancellationToken? parentLookupDeadline = null)
     {
         try
         {
+            // A cold drain accounts for its returned outcome itself and needs no parent. An ordinary stop must
+            // find its parent before claiming anything, but must never wait for the parent's callback here.
+            if (parentLookupDeadline is { } deadline && State.IsPrepared && !await PrepareStopDelivery(run, deadline))
+            {
+                return;
+            }
+
             // Not bounded: a stop that timed out for its caller still owes the job exactly one outcome.
             _ = await Drained(run, CancellationToken.None);
             await _gate.WaitAsync();
             try
             {
                 // A deactivated activation reports nothing; recovery runs the step again.
-                if (IsCurrent(run) && await ClaimStopOutcome(run) is { } outcome)
+                if (IsCurrent(run))
                 {
-                    StartDelivery(run, outcome);
+                    var outcome = await ClaimStopOutcome(run);
+                    if (_job is not null && outcome is not null)
+                    {
+                        StartDelivery(run, outcome);
+                    }
                 }
             }
             finally
@@ -275,14 +294,14 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         finally
         {
             run.Claimed();
-        }
 
-        // A start deferred until this stop settled runs in a turn of its own, once nothing of this run is in flight.
-        if (_pendingStart is not null && IsCurrent(run))
-        {
-            _pendingStartTimer ??= this.RegisterGrainTimer(
-                StartPending,
-                new GrainTimerCreationOptions { DueTime = TimeSpan.Zero, Period = Timeout.InfiniteTimeSpan });
+            // A lookup failure also releases a deferred start; no failed reservation can strand it.
+            if (_pendingStart is not null && IsCurrent(run))
+            {
+                _pendingStartTimer ??= this.RegisterGrainTimer(
+                    StartPending,
+                    new GrainTimerCreationOptions { DueTime = TimeSpan.Zero, Period = Timeout.InfiniteTimeSpan });
+            }
         }
     }
 
@@ -465,7 +484,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Failed, ["Error reporting job step succeeded"]);
         }
 
-        await DeliverUntilAcknowledged(run, () => _job.OnStepSucceeded(JobStepId, outcome));
+        // Only a started run can succeed, and Start supplied its parent before dispatching the work.
+        await DeliverUntilAcknowledged(run, () => _job!.OnStepSucceeded(JobStepId, outcome));
     }
 
     async Task DeliverFailure(JobStepRun run, PerformJobStepError error)
@@ -477,7 +497,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             return;
         }
 
-        await DeliverUntilAcknowledged(run, () => _job.OnStepFailed(JobStepId, JobStepResult.Failed(error)));
+        // Start supplied the parent before dispatching the work that recorded this failure.
+        await DeliverUntilAcknowledged(run, () => _job!.OnStepFailed(JobStepId, JobStepResult.Failed(error)));
     }
 
     async Task DeliverUntilAcknowledged(JobStepRun run, Func<Task<Result<JobError>>> deliver)
@@ -522,6 +543,12 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
     async Task<Result<JobStepError>> ReportFailureToJob(JobStepRun? run, PerformJobStepError error)
     {
+        if (_job is null)
+        {
+            logger.ParentNotResolved(JobId);
+            return JobStepError.FailedToReportToJob;
+        }
+
         // A failure or stop is persisted only after the job accepted it.
         var reported = error.Cancelled
             ? await _job.OnStepStopped(JobStepId, JobStepResult.Failed(error))

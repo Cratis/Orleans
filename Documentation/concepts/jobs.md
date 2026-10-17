@@ -193,6 +193,13 @@ once. Deactivation without an explicit stop leaves scheduled work recoverable fo
 reporting it as stopped. Do not add cancellation reporting in a job step's `PerformWork` override: the
 framework already reports it, and reporting it again makes the job count the stop twice.
 
+You can stop or remove a restored job before its steps start again. A fresh step resolves its parent from
+the stored job type without starting work. If an ordinary stop cannot resolve its parent, a direct step stop
+returns `JobStepError.FailedToReportToJob`; a job notification logs the reason, and the step keeps its state.
+Removal also preserves the step on an unavailable job type, storage failure, or expired lookup deadline.
+Only when storage definitively reports that the job no longer exists does `Stop(true)` delete the orphaned
+step without reporting an outcome. This lets you finish removing a step left behind by an interrupted removal.
+
 ## A step's work reaches its grain through activation callbacks
 
 `PerformStep` runs in the background, outside the grain's turn. Work that needs to move a checkpoint

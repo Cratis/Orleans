@@ -129,6 +129,16 @@ public class SomeJobStepGrain(
     public IJob ReportedJob { get; } = CreateAcceptingJob();
 
     /// <summary>
+    /// Gets or sets an optional parent resolver used to observe cold-parent resolution through the virtual hook.
+    /// </summary>
+    public Func<GrainId, IJob>? JobResolver { get; set; }
+
+    /// <summary>
+    /// Gets the parent identities supplied to the virtual resolution hook.
+    /// </summary>
+    public List<GrainId> ResolvedJobIds { get; } = [];
+
+    /// <summary>
     /// Runs a callback on the activation, as step work would.
     /// </summary>
     /// <typeparam name="T">Type of the callback's result.</typeparam>
@@ -165,7 +175,11 @@ public class SomeJobStepGrain(
     protected override IJobStep<SomeRequest, object, JobStepState> GetReferenceToSelf() => this;
 
     /// <inheritdoc/>
-    protected override IJob GetJob(GrainId jobGrainId) => ReportedJob;
+    protected override IJob GetJob(GrainId jobGrainId)
+    {
+        ResolvedJobIds.Add(jobGrainId);
+        return JobResolver?.Invoke(jobGrainId) ?? ReportedJob;
+    }
 
     /// <inheritdoc/>
     protected override ValueTask InitializeState(SomeRequest request) => ValueTask.CompletedTask;

@@ -5,7 +5,7 @@ using Cratis.Monads;
 
 namespace Cratis.Orleans.Jobs.for_JobStep.when_starting;
 
-public class and_the_step_was_stopped_in_this_activation : given.a_job_step_left_scheduled_by_a_dead_process
+public class and_the_step_was_stopped_in_this_activation : given.a_job_step_with_a_stored_parent
 {
     Result<StartJobStepError> _result;
 

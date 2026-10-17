@@ -29,6 +29,16 @@ public class StepStorage(JobStepState state) : IStorage<JobStepState>
     public TaskCompletionSource? HoldWrites { get; set; }
 
     /// <summary>
+    /// Gets or sets a failure thrown before a write reaches storage.
+    /// </summary>
+    public Exception? WriteFailure { get; set; }
+
+    /// <summary>
+    /// Gets how many writes were attempted, including failed ones.
+    /// </summary>
+    public int WriteAttempts { get; private set; }
+
+    /// <summary>
     /// Gets or sets whether writes fail instead of reaching storage.
     /// </summary>
     public bool FailWrites { get; set; }
@@ -61,6 +71,11 @@ public class StepStorage(JobStepState state) : IStorage<JobStepState>
     /// <inheritdoc/>
     public async Task WriteStateAsync()
     {
+        WriteAttempts++;
+        if (WriteFailure is { } failure)
+        {
+            throw failure;
+        }
         if (HoldWrites is { } hold)
         {
             WriteHeld.TrySetResult();

@@ -100,6 +100,11 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler, long? generat
     public Task? Stop { get; set; }
 
     /// <summary>
+    /// Gets or sets the failure that prevented a stop from claiming its outcome, leaving its stored state intact.
+    /// </summary>
+    public JobStepError? StopError { get; set; }
+
+    /// <summary>
     /// Gets the task that completes once a stop has claimed the outcome and started delivering it, or decided there
     /// is nothing to deliver.
     /// </summary>

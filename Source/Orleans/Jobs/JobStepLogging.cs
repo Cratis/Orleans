@@ -103,6 +103,30 @@ public static partial class JobStepLogMessages
     [LoggerMessage(LogLevel.Warning, "Job step could not run its deferred start: {Error}")]
     internal static partial void DeferredStartFailed(this ILogger<IJobStep> logger, StartJobStepError error);
 
+    [LoggerMessage(LogLevel.Information, "Removing step {JobStepId} whose parent job {JobId} no longer exists")]
+    internal static partial void RemovingStepWithoutParentJob(this ILogger<IJobStep> logger, JobStepId jobStepId, JobId jobId);
+
+    [LoggerMessage(LogLevel.Warning, "Could not report step stop: parent job {JobId} was not found")]
+    internal static partial void ParentJobNotFound(this ILogger<IJobStep> logger, JobId jobId);
+
+    [LoggerMessage(LogLevel.Warning, "Could not read parent job {JobId}: {Error}")]
+    internal static partial void ParentJobReadFailed(this ILogger<IJobStep> logger, JobId jobId, Storage.Jobs.JobError error);
+
+    [LoggerMessage(LogLevel.Warning, "Could not resolve parent job {JobId} of unavailable type {JobType}")]
+    internal static partial void ParentJobTypeUnavailable(this ILogger<IJobStep> logger, JobId jobId, JobType jobType);
+
+    [LoggerMessage(LogLevel.Warning, "Could not resolve parent job {JobId}")]
+    internal static partial void ParentLookupFailed(this ILogger<IJobStep> logger, JobId jobId, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "Parent job {JobId} lookup exceeded the step stop deadline")]
+    internal static partial void ParentLookupTimedOut(this ILogger<IJobStep> logger, JobId jobId);
+
+    [LoggerMessage(LogLevel.Debug, "Parent job {JobId} lookup ended after the step activation ended")]
+    internal static partial void ParentLookupActivationEnded(this ILogger<IJobStep> logger, JobId jobId);
+
+    [LoggerMessage(LogLevel.Warning, "Could not report step outcome: parent job {JobId} has not been resolved")]
+    internal static partial void ParentNotResolved(this ILogger<IJobStep> logger, JobId jobId);
+
     [LoggerMessage(LogLevel.Information, "Running job step again as attempt {Attempt}")]
     internal static partial void RetryingAttempt(this ILogger<IJobStep> logger, int attempt);
 
