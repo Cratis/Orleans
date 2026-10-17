@@ -3,7 +3,10 @@
 
 namespace Cratis.Orleans.Jobs.Integration.Recovery;
 
-// Admits every job unless a scenario asks it to refuse, and signals each refusal.
+/// <summary>
+/// Admits every job unless a scenario asks it to refuse, and signals each refusal.
+/// </summary>
+/// <param name="signals">The signals the scenarios drive.</param>
 public sealed class RecoveryJobAdmission(RecoverySignals signals) : IJobAdmission
 {
     public Task<bool> MayRun(JobAdmissionRequest request, CancellationToken cancellationToken)
