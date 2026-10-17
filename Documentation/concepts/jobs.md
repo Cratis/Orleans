@@ -627,6 +627,7 @@ while persisted as `Running`). When every step is done - `Failed` and `Completed
 step that succeeded is no longer in storage - it recounts its progress from storage and completes. The counters a
 job keeps while steps report to it are a cache; storage is the record. `IJobStepStorage.CountByStatus` is a
 default interface member, so a third-party storage keeps compiling and can override it with a cheaper query.
+The watchdog also retries steps whose start threw during resume, without requiring leases or another recovery pass; explicit start refusals are reported but not retried.
 
 ### Attempts and retries
 
