@@ -10,6 +10,32 @@ public abstract partial class Job<TRequest, TJobState>
     static bool IsAlreadyStarted(Result<StartJobStepError> result) =>
         result.TryGetError(out var error) && error is StartJobStepError.AlreadyStarted;
 
+    async Task<bool> TryRunResumeHook(JobProgress? stoppedProgress)
+    {
+        try
+        {
+            // Running must already be durable: consumers may adopt this job from their own replay entry without
+            // recursively resuming the job whose hook is waiting on them.
+            await OnBeforeResumingJobSteps();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.Failed(exception);
+            if (stoppedProgress is not null)
+            {
+                State.Progress = stoppedProgress;
+                if (!(await WriteStatusChanged(JobStatus.Stopped, exception)).IsSuccess)
+                {
+                    // Compensation may or may not be durable. Do not let restored counters serve a persisted
+                    // Running execution; the next activation must recover whichever write reached storage.
+                    DeactivateOnIdleDuringShutdown();
+                }
+            }
+            return false;
+        }
+    }
+
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeInterruptedSteps()
     {
         if (!JobIsPrepared())
