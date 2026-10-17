@@ -446,7 +446,8 @@ What a refusal does depends on the job's status:
 | `Running` or starting its steps, and resumed - as when a silo went away | `CannotResumeJobError.NotAdmitted`. The job is persisted as `Stopped` with a pending drain, and the drain runs in a turn of its own: nothing is drained or started in the turn that was refused |
 | Between two stages | The job is stopped, the next stage never starts, and `OnStopped` runs once |
 
-`IJobsManager.Resume` stays a `bool` and answers `false` on a refusal. The drain that follows a refusal of a
+Refusing the resume of a `Running` job whose steps have all completed leaves it `Stopped`, and `OnAllStepsCompleted`
+never runs. `IJobsManager.Resume` stays a `bool` and answers `false` on a refusal. The drain that follows a refusal of a
 running job can time out like any other. The job then stays `Stopped` with its drain pending until you call
 `StopAndDrain` or the job is next activated, which completes it.
 
