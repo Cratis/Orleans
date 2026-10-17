@@ -36,6 +36,15 @@ setup registers the defaults.
 | `MaxTerminalJobsPerCleanup` | 100 | The maximum oldest-first terminal jobs selected in one cleanup pass; values below 1 count as 1 |
 | `MaxConcurrentStepStarts` | 16 | How many steps of one job are started at once when it starts or resumes; values below 1 count as 1 |
 | `StepStopTimeout` | 10 seconds | How long stopping a step waits for its work and activation callbacks to settle before it answers `JobStepError.StopTimedOut`; keep it below the Orleans response timeout. A drained step refuses callbacks only once it has passed since its stop began, and a job completing a pending drain after activation waits up to it |
+| `MaxActiveStepsPerJob` | null (every step starts up front) | How many steps of one job are active at once; the job starts the next step as one reaches an outcome. A job overrides it with `Job.MaxActiveSteps`; values below 1 count as 1 |
+| `MaxStepAttempts` | 1 (a failed step is not retried) | How many times a step is attempted before its failure counts as the job's; `Job.ShouldRetryStep` decides per failure |
+| `StepRetryBackoff` | 5 seconds | The delay before the second attempt of a failed step; every further attempt doubles it |
+| `MaxStepRetryBackoff` | 5 minutes | The longest delay between two attempts of a step |
+| `JobWatchdogInterval` | 1 minute | How often a running job counts its steps in storage and finalizes itself when every step is done; zero, negative or infinite turns the watchdog off |
+| `StepLeaseTimeout` | zero (leases off) | How long a running step may go without a heartbeat before the watchdog may restart it, and only when its owner silo has left the cluster; zero, negative or infinite turns leases off |
+| `StepDeliveryMaxAttempts` | 10 | How many times a step delivers its persisted outcome to its job before it leaves it to the job's watchdog; values below 1 count as 1 |
+| `StepDeliveryRetryDelay` | 1 second | The delay before a step delivers its outcome a second time; every further delivery doubles it |
+| `MaxStepDeliveryRetryDelay` | 30 seconds | The longest delay between two deliveries of a step's outcome |
 
 Rehydration and cleanup isolate each job, so one job that fails to resume or delete never stops the others.
 Cleanup reads an oldest-first, storage-filtered page; it does not materialize the entire job collection. Terminal cleanup only conditionally removes immutable terminal states, so it cannot remove preparing, running, stopped, or removing jobs. It removes regular and failed job steps before the terminal job record; a failed removal is safe to retry on the next bounded pass.
