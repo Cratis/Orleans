@@ -589,6 +589,12 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
             }
 
+            // A stage that could not be asked about yet counts as stopped as it stands, but the job is still running.
+            if (_stageAdmissionTimer is not null && State.Status is JobStatus.Running)
+            {
+                return HandleCompletionSuccess.AllStepsNotCompletedYet;
+            }
+
             // When all steps have been stopped or completed
             if (State.Status is JobStatus.Stopped or JobStatus.Removing)
             {
