@@ -14,17 +14,32 @@ public abstract partial class Job<TRequest, TJobState>
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the reporting step.</param>
     /// <param name="stopped">Whether the step reports that it stopped.</param>
-    /// <returns>True if the outcome is ignored, false if it counts.</returns>
-    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped)
+    /// <returns>Whether the outcome is ignored, and the attempt it was reported for.</returns>
+    async Task<(bool Ignored, int Attempt)> IgnoreStepOutcome(JobStepId stepId, bool stopped)
     {
-        // Read and removed first, so the generation never flows into the hooks and stages the outcome leads to. Only a
-        // generation the step reported counts: one it merely inherited from its job's call says nothing about its run.
+        // Read and removed first, so neither the generation nor the attempt flows into the hooks and stages the outcome
+        // leads to. Only a generation the step reported counts: one it merely inherited from its job's call says nothing
+        // about its run.
+        var attempt = JobStepAttempt.TakeReported();
+        return (await IgnoreStepOutcome(stepId, stopped, attempt), attempt);
+    }
+
+    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped, int attempt)
+    {
         var generation = JobExecutionGeneration.TakeReported();
 
         // A drain took this step's outcome from the step itself; the step's own report of it counts nothing.
         if (_accountedByDrain.Contains(stepId))
         {
             _logger.IgnoringOutcomeAccountedForByDrain(stepId);
+            return true;
+        }
+
+        // A step delivers its outcome until it is acknowledged, so the same outcome can arrive again: once for each
+        // attempt is enough, and what storage already accounted for after a restart is not counted a second time.
+        if (!stopped && IsDuplicateOutcome(stepId, attempt))
+        {
+            _logger.IgnoringDuplicateOutcome(stepId, attempt);
             return true;
         }
 
@@ -55,6 +70,10 @@ public abstract partial class Job<TRequest, TJobState>
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
     void OutcomeCounted(JobStepId stepId) => _outcomesCounted.Add(stepId);
+
+    bool IsDuplicateOutcome(JobStepId stepId, int attempt) =>
+        _acceptedOutcomes.Contains((stepId, attempt)) ||
+        (_countsFromStorage && _jobStepGrains?.ContainsKey(stepId) != true && !_pendingRetries.ContainsKey(stepId));
 
     async Task<bool> IgnoreLateStepOutcome(JobStepId stepId)
     {

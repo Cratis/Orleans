@@ -32,6 +32,6 @@ public class for_removal_while_the_work_delivers_a_failure : given.a_job_step_le
 
     [Fact] async Task should_report_the_failure_once() => await _jobStep.ReportedJob.Received(1).OnStepFailed(_jobStepId, Arg.Any<JobStepResult>());
     [Fact] async Task should_not_report_a_stop() => await _jobStep.ReportedJob.DidNotReceive().OnStepStopped(Arg.Any<JobStepId>(), Arg.Any<JobStepResult>());
-    [Fact] void should_record_the_failure_before_removing() => _storage.Persisted.Select(_ => _.Status).TakeLast(2).ShouldEqual([JobStepStatus.CompletedWithFailure, JobStepStatus.Removing]);
-    [Fact] void should_remove_the_step_once() => _storage.Persisted.Count(_ => _.Status == JobStepStatus.Removing).ShouldEqual(1);
+    [Fact] void should_leave_the_failure_persisted_as_it_was_before_it_was_reported() => _storage.Persisted.Select(_ => _.Status).Last().ShouldEqual(JobStepStatus.CompletedWithFailure);
+    [Fact] void should_not_write_a_removal_over_the_persisted_failure() => _storage.Persisted.Count(_ => _.Status == JobStepStatus.Removing).ShouldEqual(0);
 }

@@ -148,19 +148,32 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
-    public async Task Stop(JobId jobId)
+    public async Task<Cratis.Monads.Result<StopJobError>> Stop(JobId jobId)
     {
         using var scope = logger.BeginJobsManagerScope(_key);
 
         logger.StoppingJob(jobId);
-        _ = await DoActionOnJobGrain<None>(jobId, async (_, job) =>
+        var outcome = await DoActionOnJobGrain(jobId, async (_, job) =>
         {
             var stopResult = await job.Stop();
-            await stopResult.Match(
-                none => Task.CompletedTask,
-                error => HandleStopJobError(jobId, error));
-            return default;
+            if (stopResult.TryGetError(out var error))
+            {
+                await HandleStopJobError(jobId, error);
+                return Result.Failed(error);
+            }
+            return Result.Success<StopJobError>();
         });
+        return outcome.Match(result => result, _ => Result.Failed(StopJobError.Unknown));
+    }
+
+    /// <inheritdoc/>
+    public async Task<Result<int, RetryFailedStepsError>> RetryFailedSteps(JobId jobId)
+    {
+        using var scope = logger.BeginJobsManagerScope(_key);
+
+        logger.RetryingFailedSteps(jobId);
+        var outcome = await DoActionOnJobGrain(jobId, (_, job) => job.RetryFailed());
+        return outcome.Match(result => result, _ => Result.Failed<int, RetryFailedStepsError>(RetryFailedStepsError.Unknown));
     }
 
     /// <inheritdoc/>

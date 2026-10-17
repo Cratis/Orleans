@@ -52,6 +52,30 @@ public interface IJobStepStorage
     Task<Catch<int>> CountForJob(JobId jobId, params JobStepStatus[] statuses);
 
     /// <summary>
+    /// Count the job steps of a specific job grouped by their status.
+    /// </summary>
+    /// <param name="jobId"><see cref="JobId"/> to count for.</param>
+    /// <returns>The number of job steps per <see cref="JobStepStatus"/>; a status without steps is absent.</returns>
+    /// <remarks>
+    /// A successfully completed step is normally removed from storage, so storage holds the steps that are not done
+    /// or did not succeed. The default implementation reads the steps and groups them; a storage should override it
+    /// with a query that does not materialize the steps.
+    /// </remarks>
+    async Task<Catch<IReadOnlyDictionary<JobStepStatus, int>>> CountByStatus(JobId jobId)
+    {
+        var steps = await GetForJob(jobId).ConfigureAwait(false);
+        if (steps.TryGetException(out var exception))
+        {
+            return exception;
+        }
+
+        IReadOnlyDictionary<JobStepStatus, int> counts = steps.AsT0
+            .GroupBy(_ => _.Status)
+            .ToDictionary(_ => _.Key, _ => _.Count());
+        return Catch<IReadOnlyDictionary<JobStepStatus, int>>.Success(counts);
+    }
+
+    /// <summary>
     /// Observe job steps for a specific job.
     /// </summary>
     /// <param name="jobId"><see cref="JobId"/> to observe for.</param>

@@ -29,6 +29,11 @@ public class StepStorage(JobStepState state) : IStorage<JobStepState>
     public TaskCompletionSource? HoldWrites { get; set; }
 
     /// <summary>
+    /// Gets or sets whether writes fail instead of reaching storage.
+    /// </summary>
+    public bool FailWrites { get; set; }
+
+    /// <summary>
     /// Gets the signal that a write is being held.
     /// </summary>
     public TaskCompletionSource WriteHeld { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,9 +66,13 @@ public class StepStorage(JobStepState state) : IStorage<JobStepState>
             WriteHeld.TrySetResult();
             await hold.Task;
         }
+        if (FailWrites)
+        {
+            throw new InvalidOperationException("The write failed");
+        }
         lock (_persisted)
         {
-            _persisted.Add(new(State.Status, State.Progress.Message.Value));
+            _persisted.Add(new(State.Status, State.Progress.Message.Value, State.Attempt, State.Lease is null ? null : new JobStepLease { Owner = State.Lease.Owner, ActivationId = State.Lease.ActivationId, LastHeartbeat = State.Lease.LastHeartbeat, Attempt = State.Lease.Attempt }));
         }
     }
 }

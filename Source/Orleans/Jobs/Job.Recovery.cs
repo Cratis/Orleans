@@ -83,9 +83,13 @@ public abstract partial class Job<TRequest, TJobState>
         return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: true);
     }
 
+    Task<Result<StartJobStepError>> StartOrRetry(JobStepId stepId, IJobStep step) =>
+        _attemptsToRun.TryGetValue(stepId, out var attempt) ? step.Retry(this.GetGrainId(), attempt) : step.Start(this.GetGrainId());
+
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(Dictionary<JobStepId, IJobStep> steps, bool reportAlreadyRunning)
     {
         _hasLiveStepTracking = true;
+        steps = SelectWindow(steps);
         var failedSteps = new List<JobStepId>();
         var allLive = true;
         foreach (var chunk in steps.Chunk(MaxConcurrentJobStepStartups))
@@ -94,7 +98,7 @@ public abstract partial class Job<TRequest, TJobState>
             using (JobExecutionGeneration.Carry(ExecutionGeneration()))
             {
                 results = await Task.WhenAll(chunk.Select(async step =>
-                    (step.Key, Grain: step.Value, Result: await step.Value.Start(this.GetGrainId()))));
+                    (step.Key, Grain: step.Value, Result: await StartOrRetry(step.Key, step.Value))));
             }
             foreach (var (id, grain, result) in results)
             {

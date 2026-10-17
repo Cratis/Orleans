@@ -193,6 +193,33 @@ public static partial class JobLogMessages
 
     [LoggerMessage(LogLevel.Warning, "Job has no request to ask admission about at {CheckPoint}; admitting it")]
     internal static partial void AdmittingJobWithoutRequest(this ILogger<IJob> logger, string checkPoint);
+
+    [LoggerMessage(LogLevel.Warning, "Job could not be stopped because the stop was not persisted; it was left as it was")]
+    internal static partial void FailedStoppingJobBecauseItWasNotPersisted(this ILogger<IJob> logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Debug, "Ignoring an outcome of step {StepId} attempt {Attempt} that was already accounted for")]
+    internal static partial void IgnoringDuplicateOutcome(this ILogger<IJob> logger, JobStepId stepId, int attempt);
+
+    [LoggerMessage(LogLevel.Debug, "Starting {Count} more job steps to fill the window")]
+    internal static partial void FillingWindow(this ILogger<IJob> logger, int count);
+
+    [LoggerMessage(LogLevel.Warning, "Job failed filling its window of active steps")]
+    internal static partial void FailedFillingWindow(this ILogger<IJob> logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "Job watchdog could not count the steps in storage")]
+    internal static partial void WatchdogCouldNotCountSteps(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Warning, "Job watchdog failed")]
+    internal static partial void WatchdogFailed(this ILogger<IJob> logger, Exception exception);
+
+    [LoggerMessage(LogLevel.Warning, "Job watchdog is restarting {Count} steps whose owner is gone")]
+    internal static partial void RestartingStepsWhoseOwnerIsGone(this ILogger<IJob> logger, int count);
+
+    [LoggerMessage(LogLevel.Information, "Running {Count} failed steps again")]
+    internal static partial void RetryingFailedSteps(this ILogger<IJob> logger, int count);
+
+    [LoggerMessage(LogLevel.Information, "Step {StepId} failed; attempt {Attempt} is scheduled in {Delay}")]
+    internal static partial void SchedulingStepRetry(this ILogger<IJob> logger, JobStepId stepId, int attempt, TimeSpan delay);
 }
 
 public static class JobScopes
