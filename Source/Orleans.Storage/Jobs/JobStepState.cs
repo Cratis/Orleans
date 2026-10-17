@@ -50,4 +50,20 @@ public class JobStepState
     /// Gets or sets whether the job step has been prepared.
     /// </summary>
     public bool IsPrepared { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of the attempt the step is on, starting at 1.
+    /// </summary>
+    /// <remarks>
+    /// Optional in storage: a step written before attempts existed reads as attempt 1.
+    /// </remarks>
+    public int Attempt { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the <see cref="JobStepLease"/> held by the activation that runs the step, if leases are in use.
+    /// </summary>
+    /// <remarks>
+    /// Optional in storage: a step written before leases existed, or while they are off, has none.
+    /// </remarks>
+    public JobStepLease? Lease { get; set; }
 }

@@ -95,6 +95,23 @@ public sealed class JobStepStorage : IJobStepStorage
     }
 
     /// <inheritdoc/>
+    public Task<Catch<IReadOnlyDictionary<JobStepStatus, int>>> CountByStatus(JobId jobId)
+    {
+        try
+        {
+            IReadOnlyDictionary<JobStepStatus, int> counts = ForJob(_steps, jobId, [])
+                .Concat(ForJob(_failedSteps, jobId, []))
+                .GroupBy(_ => _.Status)
+                .ToDictionary(_ => _.Key, _ => _.Count());
+            return Task.FromResult(Catch<IReadOnlyDictionary<JobStepStatus, int>>.Success(counts));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<Catch<IReadOnlyDictionary<JobStepStatus, int>>>(ex);
+        }
+    }
+
+    /// <inheritdoc/>
     public Catch<IObservable<IEnumerable<JobStepState>>> ObserveForJob(JobId jobId)
     {
         try
@@ -155,6 +172,9 @@ public sealed class JobStepStorage : IJobStepStorage
             else
             {
                 _steps[key] = actualState;
+
+                // A step that runs again after it failed leaves the failed collection.
+                _failedSteps.TryRemove(key, out _);
             }
 
             return Task.FromResult<Catch<None, JobStepError>>(default(None));

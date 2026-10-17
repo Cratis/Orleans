@@ -159,6 +159,30 @@ public class JobStepStorage(IMongoDatabase database, TransientRetry retry) : IJo
     }
 
     /// <inheritdoc/>
+    public async Task<Catch<IReadOnlyDictionary<JobStepStatus, int>>> CountByStatus(JobId jobId)
+    {
+        try
+        {
+            await EnsureIndexes().ConfigureAwait(false);
+            var filter = GetJobIdFilter<JobStepState>(jobId);
+            var statusField = nameof(JobStepState.Status).ToCamelCase();
+
+            var counted = await retry.Execute($"counting job steps of job {jobId} by status", async () =>
+            {
+                var counts = new Dictionary<JobStepStatus, int>();
+                await AddCounts(Collection, filter, statusField, counts).ConfigureAwait(false);
+                await AddCounts(FailedCollection, filter, statusField, counts).ConfigureAwait(false);
+                return (IReadOnlyDictionary<JobStepStatus, int>)counts;
+            }).ConfigureAwait(false);
+            return Catch<IReadOnlyDictionary<JobStepStatus, int>>.Success(counted);
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
     public Catch<IObservable<IEnumerable<JobStepState>>> ObserveForJob(JobId jobId)
     {
         try
@@ -185,7 +209,15 @@ public class JobStepStorage(IMongoDatabase database, TransientRetry retry) : IJo
             var state = await retry.Execute($"reading job step {jobStepId} of job {jobId}", async () =>
             {
                 using var cursor = await GetTypedCollection<TJobStepState>().FindAsync(filter).ConfigureAwait(false);
-                return await cursor.FirstOrDefaultAsync();
+                var found = await cursor.FirstOrDefaultAsync();
+                if (found is not null)
+                {
+                    return found;
+                }
+
+                // A step that failed lives in the failed collection; it must be readable to run again.
+                using var failedCursor = await GetTypedFailedCollection<TJobStepState>().FindAsync(filter).ConfigureAwait(false);
+                return await failedCursor.FirstOrDefaultAsync();
             }).ConfigureAwait(false);
             return state is not null ? state : JobStepError.NotFound;
         }
@@ -215,6 +247,14 @@ public class JobStepStorage(IMongoDatabase database, TransientRetry retry) : IJo
             await retry.Execute(
                 $"saving job step {jobStepId} of job {jobId}",
                 () => collection.ReplaceOneAsync(GetIdFilter<TJobStepState>(jobId, jobStepId), state, new ReplaceOptions { IsUpsert = true })).ConfigureAwait(false);
+
+            // A step that runs again after it failed leaves the failed collection; only a step on a later attempt can be there.
+            if (actualState.Attempt > 1 && !ShouldBeStoredInFailedCollection(actualState.Status))
+            {
+                await retry.Execute(
+                    $"removing the failed record of job step {jobStepId} of job {jobId}",
+                    () => GetTypedFailedCollection<TJobStepState>().DeleteOneAsync(GetIdFilter<TJobStepState>(jobId, jobStepId))).ConfigureAwait(false);
+            }
             return default(None);
         }
         catch (Exception ex)
@@ -248,6 +288,23 @@ public class JobStepStorage(IMongoDatabase database, TransientRetry retry) : IJo
         catch (Exception ex)
         {
             return ex;
+        }
+    }
+
+    static async Task AddCounts(
+        IMongoCollection<JobStepState> collection,
+        FilterDefinition<JobStepState> filter,
+        string statusField,
+        Dictionary<JobStepStatus, int> counts)
+    {
+        var groups = await collection.Aggregate()
+            .Match(filter)
+            .Group(new BsonDocument { { "_id", $"${statusField}" }, { "count", new BsonDocument("$sum", 1) } })
+            .ToListAsync().ConfigureAwait(false);
+        foreach (var group in groups)
+        {
+            var status = (JobStepStatus)group["_id"].ToInt32();
+            counts[status] = counts.GetValueOrDefault(status) + group["count"].ToInt32();
         }
     }
 

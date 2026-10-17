@@ -121,6 +121,26 @@ public class JobStepStorage(Func<JobsDbContext> contextFactory) : IJobStepStorag
     }
 
     /// <inheritdoc/>
+    public async Task<Catch<IReadOnlyDictionary<JobStepStatus, int>>> CountByStatus(JobId jobId)
+    {
+        try
+        {
+            await using var dbContext = contextFactory();
+            var groups = await dbContext.JobSteps
+                .Where(js => js.JobId == jobId.Value)
+                .GroupBy(js => js.Status)
+                .Select(group => new { Status = group.Key, Count = group.Count() })
+                .ToListAsync();
+            IReadOnlyDictionary<JobStepStatus, int> counts = groups.ToDictionary(_ => _.Status, _ => _.Count);
+            return Catch<IReadOnlyDictionary<JobStepStatus, int>>.Success(counts);
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
     public Catch<IObservable<IEnumerable<JobStepState>>> ObserveForJob(JobId jobId)
     {
         try
