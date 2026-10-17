@@ -22,4 +22,9 @@ public enum CannotResumeJobError
     /// Job cannot be resumed.
     /// </summary>
     JobCannotBeResumed = 2,
+
+    /// <summary>
+    /// A registered <see cref="IJobAdmission"/> refused the job, so it did not resume.
+    /// </summary>
+    NotAdmitted = 3,
 }

@@ -41,6 +41,7 @@ public sealed class RecoveryClusterConfigurator : ISiloConfigurator, IClientBuil
         siloBuilder.AddPlacementDirector<RecoveryPlacement>(_ => new RecoveryPlacementDirector());
         siloBuilder.Services.AddSingleton<IGrainPropertiesProvider, RecoveryPlacementProperties>();
         siloBuilder.AddCratisOrleansJobsRecovery();
+        siloBuilder.AddJobAdmission<RecoveryJobAdmission>();
         siloBuilder.Configure<ClusterMembershipOptions>(options =>
         {
             options.ProbeTimeout = TimeSpan.FromSeconds(1);

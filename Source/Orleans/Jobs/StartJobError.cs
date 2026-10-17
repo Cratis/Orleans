@@ -42,4 +42,9 @@ public enum StartJobError
     /// The job has already completed and cannot be started again.
     /// </summary>
     AlreadyCompleted = 6,
+
+    /// <summary>
+    /// A registered <see cref="IJobAdmission"/> refused the job, so it did not start.
+    /// </summary>
+    NotAdmitted = 7,
 }

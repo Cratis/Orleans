@@ -21,4 +21,13 @@ public sealed class RecoverySignals(string database)
     public TaskCompletionSource ResumeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseResume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public SemaphoreSlim RecoveryPasses { get; } = new(0);
+    public SemaphoreSlim AdmissionRefusals { get; } = new(0);
+
+    public bool RefuseAdmission
+    {
+        get => Volatile.Read(ref _refuseAdmission);
+        set => Volatile.Write(ref _refuseAdmission, value);
+    }
+
+    bool _refuseAdmission;
 }

@@ -124,13 +124,14 @@ public abstract partial class Job<TRequest, TJobState>
 
         var first = State.Progress.Stages[0];
         var result = await StartStage(grainId, first);
-        await AdvanceStagesAfter(first);
+        await AdvanceStagesAfter(first, checkAdmission: false);
         return result;
     }
 
     Task<Result<StartJobError>> StartStage(GrainId grainId, JobStageProgress stage)
     {
         _logger.StartingStage(stage.Stage, stage.TotalSteps);
+        DisposeStageAdmissionTimer();
         stage.IsStarted = true;
         return StartAndSubscribeToJobSteps(grainId, StepsIn(stage.Stage));
     }
@@ -145,11 +146,11 @@ public abstract partial class Job<TRequest, TJobState>
     {
         if (StageOf(stepId) is { } stage)
         {
-            await AdvanceStagesAfter(stage);
+            await AdvanceStagesAfter(stage, checkAdmission: true);
         }
     }
 
-    async Task AdvanceStagesAfter(JobStageProgress stage)
+    async Task AdvanceStagesAfter(JobStageProgress stage, bool checkAdmission)
     {
         var grainId = this.GetGrainId();
 
@@ -158,6 +159,13 @@ public abstract partial class Job<TRequest, TJobState>
         while (stage.IsCompleted && State.Status is JobStatus.Running or JobStatus.StartingSteps)
         {
             if (await StopAtFailedBarrier() || State.Progress.Stages.Current() is not { } next)
+            {
+                return;
+            }
+
+            // A later stage is a new beginning of work, so the owner is asked once more; a job that is only being
+            // picked up again was asked as part of that.
+            if (checkAdmission && !await AdmitNextStage())
             {
                 return;
             }
@@ -208,7 +216,7 @@ public abstract partial class Job<TRequest, TJobState>
         if (!await StopAtFailedBarrier() && State.Progress.Stages.Current() is { } current)
         {
             _ = await StartStage(this.GetGrainId(), current);
-            await AdvanceStagesAfter(current);
+            await AdvanceStagesAfter(current, checkAdmission: false);
         }
 
         _ = await HandleCompletionResult(await HandleCompletion());

@@ -141,4 +141,21 @@ public static class CratisOrleansSiloBuilderExtensions
         silo.Services.TryAddEnumerable(ServiceDescriptor.Singleton<ILifecycleParticipant<ISiloLifecycle>, JobsRecovery>());
         return silo;
     }
+
+    /// <summary>
+    /// Adds an <see cref="IJobAdmission"/> that is asked before a job's execution begins or begins again.
+    /// </summary>
+    /// <param name="silo">The silo builder.</param>
+    /// <typeparam name="TAdmission">The <see cref="IJobAdmission"/> implementation, registered as a singleton.</typeparam>
+    /// <returns>The silo builder for chaining.</returns>
+    /// <remarks>
+    /// A silo without a registration admits every job, so register it on every silo that can host the job types it
+    /// concerns. Adding the same implementation twice registers it once.
+    /// </remarks>
+    public static ISiloBuilder AddJobAdmission<TAdmission>(this ISiloBuilder silo)
+        where TAdmission : class, IJobAdmission
+    {
+        silo.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IJobAdmission, TAdmission>());
+        return silo;
+    }
 }
