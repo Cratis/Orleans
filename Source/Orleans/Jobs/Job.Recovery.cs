@@ -106,6 +106,9 @@ public abstract partial class Job<TRequest, TJobState>
                     _logger.FailedStartingJobStep(exception, id);
                     _resumeStartFailures.Add(id);
                     failedSteps.Add(id);
+
+                    // Dispatch may have reached the step despite the exception; it must still hear a stop or removal.
+                    await TrySubscribeJobStep(id, steps[id]);
                     continue;
                 }
 

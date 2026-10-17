@@ -19,7 +19,7 @@ public class and_a_step_start_throws : given.a_job_with_a_throwing_resume_start
     [Fact] void should_report_only_the_throwing_step_as_failed_to_resume() => ((FailedResumingJobSteps)(ResumeJobError)_result).FailedJobSteps.ShouldContainOnly(_stepIds[0]);
     [Fact] void should_start_the_other_step_in_the_chunk() => _steps[1].Verify(step => step.Start(It.IsAny<GrainId>()), Times.Once);
     [Fact] void should_start_the_step_in_the_next_chunk() => _steps[2].Verify(step => step.Start(It.IsAny<GrainId>()), Times.Once);
-    [Fact] void should_not_subscribe_the_throwing_step() => _steps[0].Verify(step => step.OnJobStopped(), Times.Never);
+    [Fact] void should_notify_the_uncertain_dispatch_to_stop() => _steps[0].Verify(step => step.OnJobStopped(), Times.Once);
     [Fact] void should_subscribe_the_other_step_in_the_chunk() => _steps[1].Verify(step => step.OnJobStopped(), Times.Once);
     [Fact] void should_subscribe_the_step_in_the_next_chunk() => _steps[2].Verify(step => step.OnJobStopped(), Times.Once);
 }

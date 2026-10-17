@@ -21,5 +21,5 @@ public class and_a_throwing_resume_start_had_completed : given.a_job_with_a_thro
     }
 
     [Fact] void should_stop_retrying_after_the_step_answers_completed() => _steps[0].Verify(step => step.Start(It.IsAny<GrainId>()), Times.Exactly(2));
-    [Fact] void should_not_subscribe_the_completed_step() => _steps[0].Verify(step => step.OnJobStopped(), Times.Never);
+    [Fact] void should_keep_the_uncertain_dispatch_subscribed() => _steps[0].Verify(step => step.OnJobStopped(), Times.Once);
 }
