@@ -345,7 +345,7 @@ token, and returns the `Catch<JobStepResult>` your step returned. Callbacks your
 `TryInvokeOnActivation` are admitted and run, one at a time, on `run.Activation`, a stand-in scheduler.
 `run.IsOnActivation` tells a spec whether the code that is running is on it, which is how you check that
 state is only touched from a callback. Pass your own `TaskScheduler` to `BeginTestRun` to use another stand-in.
-A run performs once; to perform again, begin a new run after the earlier one's work and callbacks settled, or
+A run performs once; to perform again, begin a new run after the earlier one's work and callbacks have settled, or
 `BeginTestRun` throws `JobStepAlreadyHasALiveRun`.
 
 Stopping and giving up are separate moments, and a step should be specified at both:

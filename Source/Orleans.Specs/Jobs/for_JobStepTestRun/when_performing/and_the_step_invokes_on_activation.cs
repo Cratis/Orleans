@@ -12,10 +12,13 @@ public class and_the_step_invokes_on_activation : given.a_job_step_with_a_test_r
     int _mostRunningAtOnce;
     readonly List<bool> _ranOnActivation = [];
     Result<bool, ActivationCallbackRejected>[] _results;
+    bool _stepRanOnActivation = true;
 
     void Establish() =>
         _jobStep.Work = async (step, _) =>
         {
+            _stepRanOnActivation = _testRun.IsOnActivation;
+
             // Two callbacks posted at once, each yielding while it runs, so overlap would show.
             async Task<bool> Callback()
             {
@@ -34,5 +37,5 @@ public class and_the_step_invokes_on_activation : given.a_job_step_with_a_test_r
     [Fact] void should_admit_both_callbacks() => _results.All(_ => _.IsSuccess).ShouldBeTrue();
     [Fact] void should_run_them_on_the_activation() => _ranOnActivation.ShouldEachConformTo(_ => _);
     [Fact] void should_run_them_one_at_a_time() => _mostRunningAtOnce.ShouldEqual(1);
-    [Fact] void should_not_run_the_step_itself_on_the_activation() => _testRun.IsOnActivation.ShouldBeFalse();
+    [Fact] void should_not_run_the_step_itself_on_the_activation() => _stepRanOnActivation.ShouldBeFalse();
 }

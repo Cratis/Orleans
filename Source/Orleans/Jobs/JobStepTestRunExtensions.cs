@@ -22,7 +22,8 @@ public static class JobStepTestRunExtensions
     /// <exception cref="JobStepAlreadyHasALiveRun">Thrown when the step's earlier run has not settled.</exception>
     /// <remarks>
     /// The run does not record or deliver outcomes: use it to specify a step's own work, not its reporting to a job.
-    /// A callback from an earlier test run of the same step is refused as stale.
+    /// A callback from an earlier test run of the same step is refused as closed.
+    /// Use it in specifications only: it changes the step's run outside the activation, so never call it on a step a silo is running.
     /// </remarks>
     public static JobStepTestRun<TState> BeginTestRun<TRequest, TResult, TState>(
         this JobStep<TRequest, TResult, TState> step,

@@ -36,7 +36,7 @@ public class after_an_earlier_test_run : given.a_job_step_with_a_test_run
         _result = await _leftover.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
     }
 
-    [Fact] void should_refuse_the_earlier_runs_callback() => _result.IsSuccess.ShouldBeFalse();
+    [Fact] void should_refuse_the_earlier_runs_callback_as_closed() => (_result.TryGetError(out var error) && error == ActivationCallbackRejected.Closed).ShouldBeTrue();
     [Fact] void should_not_run_the_callback() => _ran.ShouldBeFalse();
     [Fact] void should_leave_the_new_run_admitting_callbacks() => _newTestRun.AdmissionOpen.ShouldBeTrue();
 }
