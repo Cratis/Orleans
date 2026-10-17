@@ -89,6 +89,9 @@ public static partial class JobsManagerLogMessages
     [LoggerMessage(LogLevel.Warning, "Job {JobId} cannot be resumed")]
     public static partial void JobCannotBeResumed(this ILogger<JobsManager> logger, JobId jobId);
 
+    [LoggerMessage(LogLevel.Information, "Job {JobId} was not admitted to run and is not resumed")]
+    public static partial void JobNotAdmitted(this ILogger<JobsManager> logger, JobId jobId);
+
     [LoggerMessage(LogLevel.Warning, "Failed to resume Job {JobId}")]
     public static partial void FailedResumingJob(this ILogger<JobsManager> logger, JobId jobId);
 
