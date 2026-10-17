@@ -57,6 +57,7 @@ public abstract partial class Job<TRequest, TJobState>
                 return;
             }
 
+            await RetryStepsWhoseResumeStartThrew();
             await RestartStepsWhoseOwnerIsGone();
             await FillWindow();
         }
@@ -128,6 +129,21 @@ public abstract partial class Job<TRequest, TJobState>
     {
         _watchdogTimer?.Dispose();
         _watchdogTimer = null;
+        _resumeStartFailures.Clear();
+    }
+
+    async Task RetryStepsWhoseResumeStartThrew()
+    {
+        var tracked = StepsInCurrentStage();
+        _resumeStartFailures.RemoveWhere(id => !tracked.ContainsKey(id));
+        if (_resumeStartFailures.Count == 0)
+        {
+            return;
+        }
+
+        var retryable = tracked.Where(step => _resumeStartFailures.Contains(step.Key))
+            .ToDictionary(step => step.Key, step => step.Value);
+        _ = await ResumeCurrentStage(retryable, reportAlreadyRunning: false);
     }
 
     /// <summary>

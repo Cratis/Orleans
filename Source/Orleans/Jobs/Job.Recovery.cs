@@ -7,6 +7,8 @@ namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
+    readonly HashSet<JobStepId> _resumeStartFailures = [];
+
     static bool IsAlreadyStarted(Result<StartJobStepError> result) =>
         result.TryGetError(out var error) && error is StartJobStepError.AlreadyStarted;
 
@@ -83,9 +85,6 @@ public abstract partial class Job<TRequest, TJobState>
         return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: true);
     }
 
-    Task<Result<StartJobStepError>> StartOrRetry(JobStepId stepId, IJobStep step) =>
-        _attemptsToRun.TryGetValue(stepId, out var attempt) ? step.Retry(this.GetGrainId(), attempt) : step.Start(this.GetGrainId());
-
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(Dictionary<JobStepId, IJobStep> steps, bool reportAlreadyRunning)
     {
         _hasLiveStepTracking = true;
@@ -94,16 +93,28 @@ public abstract partial class Job<TRequest, TJobState>
         var allLive = true;
         foreach (var chunk in steps.Chunk(MaxConcurrentJobStepStartups))
         {
-            (JobStepId Key, IJobStep Grain, Result<StartJobStepError> Result)[] results;
+            (JobStepId Id, Result<StartJobStepError> Result, Exception? Exception)[] results;
             using (JobExecutionGeneration.Carry(ExecutionGeneration()))
             {
-                results = await Task.WhenAll(chunk.Select(async step =>
-                    (step.Key, Grain: step.Value, Result: await StartOrRetry(step.Key, step.Value))));
+                results = await Task.WhenAll(chunk.Select(step => TryStartJobStep(step.Key, step.Value, this.GetGrainId())));
             }
-            foreach (var (id, grain, result) in results)
+            foreach (var (id, result, exception) in results)
             {
                 allLive &= IsAlreadyStarted(result);
-                if (await HandleResumeJobStepResult(id, result, grain))
+                if (exception is not null)
+                {
+                    _logger.FailedStartingJobStep(exception, id);
+                    _resumeStartFailures.Add(id);
+                    failedSteps.Add(id);
+
+                    // Dispatch may have reached the step despite the exception; it must still hear a stop or removal.
+                    await TrySubscribeJobStep(id, steps[id]);
+                    continue;
+                }
+
+                // An explicit answer is no longer an uncertain dispatch, including a refusal that must not be retried.
+                _resumeStartFailures.Remove(id);
+                if (await HandleResumeJobStepResult(id, result, steps[id]))
                 {
                     failedSteps.Add(id);
                 }
