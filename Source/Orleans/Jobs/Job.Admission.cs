@@ -4,7 +4,6 @@
 using Cratis.Monads;
 using Cratis.Orleans.Jobs.Stages;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace Cratis.Orleans.Jobs;
 
@@ -33,9 +32,8 @@ public abstract partial class Job<TRequest, TJobState>
     /// </remarks>
     async Task<Admission> Admit(IJobRequest? request, string checkPoint)
     {
-        // Not GetServices: it throws where the service is not registered at all.
-        var admissions = (ServiceProvider.GetService<IEnumerable<IJobAdmission>>() ?? []).ToArray();
-        if (admissions.Length == 0)
+        var admissions = ResolveAdmissions();
+        if (admissions.Count == 0)
         {
             return Admission.Admitted;
         }
@@ -67,6 +65,27 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         return Admission.Admitted;
+    }
+
+    List<IJobAdmission> ResolveAdmissions()
+    {
+        // A test host such as Orleans TestKit hands out an auto-mock for an unregistered enumerable, whose enumerator is null.
+        var admissions = new List<IJobAdmission>();
+        var registered = ServiceProvider.GetService<IEnumerable<IJobAdmission>>();
+        if (registered?.GetEnumerator() is not { } enumerator)
+        {
+            return admissions;
+        }
+
+        using (enumerator)
+        {
+            while (enumerator.MoveNext())
+            {
+                admissions.Add(enumerator.Current);
+            }
+        }
+
+        return admissions;
     }
 
     /// <summary>
