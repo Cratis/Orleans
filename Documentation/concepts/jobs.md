@@ -326,6 +326,46 @@ has the outcome, and moves its stages on. It does not run `OnStepCompletedOrStop
 A step hosted by a silo older than v1.20.0 reports no generation, even when a newer job started it, and a run
 started by a job on an older silo has none to report. Their reports keep the earlier behavior.
 
+## Testing your job steps
+
+A step's work only reaches its grain through `TryInvokeOnActivation`, and that needs a run. Host your step in
+an Orleans TestKit silo, as the framework's own specs do, and nothing calls `PerformStep` for you: without a
+run, every callback is refused as `NoRun`. Since v1.21.0, `BeginTestRun` gives the step the run its work has in
+a silo:
+
+```csharp
+var step = await silo.CreateGrainAsync<MyStep>(stepId, keyExtension: key);
+var run = step.BeginTestRun();
+
+var performed = await run.Perform(new MyStepState());
+```
+
+`Perform` calls your `PerformStep` off the activation with the state you pass and the run's cancellation
+token, and returns the `Catch<JobStepResult>` your step returned. Callbacks your step posts with
+`TryInvokeOnActivation` are admitted and run, one at a time, on `run.Activation`, a stand-in scheduler.
+`run.IsOnActivation` tells a spec whether the code that is running is on it, which is how you check that
+state is only touched from a callback. Pass your own `TaskScheduler` to `BeginTestRun` to use another stand-in.
+A run performs once; to perform again, begin a new run after the earlier one's work and callbacks have settled, or
+`BeginTestRun` throws `JobStepAlreadyHasALiveRun`. Beginning a run replaces the step's earlier one, so perform
+through the run you began last: an earlier run's `Perform` throws `JobStepTestRunWasSuperseded`.
+
+Stopping and giving up are separate moments, and a step should be specified at both:
+
+| Call | What it does | What your step sees |
+| --- | --- | --- |
+| `run.Stop()` | Cancels the work. Admission stays open | `run.Cancellation` is cancelled; a final checkpoint through `TryInvokeOnActivation` still lands |
+| `run.CloseAdmission()` | Refuses callbacks that have not started. Does not cancel | Callbacks come back as `ActivationCallbackRejected.Closed` |
+
+`Stop` is what an ordinary stop does while it waits for the work. `CloseAdmission` is what happens once that
+wait passes its deadline, or the activation deactivates after draining. `Perform` closes admission itself
+when your step returns, as a drain does. Wait for `run.CallbacksSettled` before asserting on state a callback
+may still be writing.
+
+A test run does not record or deliver outcomes: it does not write the step's status, call the job or count
+the step as finished. Specify those through the step's grain interface (`Start`, `Stop`) and a substitute
+`IJob`. Starting through the grain interface copies your state for the work, so a TestKit silo that does that
+needs a `DeepCopier` for your state type registered.
+
 ## Stop a job and wait until it is drained
 
 `Stop` is accepted as soon as the job has persisted it; its steps finish stopping afterwards. When you need to
