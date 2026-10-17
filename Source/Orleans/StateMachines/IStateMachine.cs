@@ -32,10 +32,15 @@ public interface IStateMachine<TStoredState>
         where TState : IState<TStoredState>;
 
     /// <summary>
-    /// Transition to a new state.
+    /// Transition to a new state, if the current state allows it.
     /// </summary>
     /// <typeparam name="TState">Type of state to transition to.</typeparam>
     /// <returns>Task representing the asynchronous operation.</returns>
+    /// <remarks>
+    /// When the current state does not allow <typeparamref name="TState"/>, nothing happens and the task completes
+    /// without an error: a refused transition is not a failure. Call <see cref="CanTransitionTo{TState}"/> first when
+    /// the caller needs to know whether the transition will be allowed.
+    /// </remarks>
     Task TransitionTo<TState>()
         where TState : IState<TStoredState>;
 }

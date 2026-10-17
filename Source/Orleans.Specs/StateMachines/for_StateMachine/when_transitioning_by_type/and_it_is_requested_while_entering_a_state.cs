@@ -13,7 +13,7 @@ public class and_it_is_requested_while_entering_a_state : given.a_state_machine_
         on_calls.Clear();
     }
 
-    async Task Because() => await StateMachine.TransitionToStateOfType(typeof(StateThatTransitionsByTypeOnEnter));
+    async Task Because() => await StateMachine.TransitionToStateOfType(typeof(StateThatTransitionsByTypeOnEnter)).WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
     [Fact] void should_finish_entering_the_state_before_transitioning() => (on_calls[1].Type == typeof(StateThatTransitionsByTypeOnEnter) && on_calls[1].IsEnter).ShouldBeTrue();
     [Fact] void should_leave_the_state_before_transitioning() => (on_calls[2].Type == typeof(StateThatTransitionsByTypeOnEnter) && !on_calls[2].IsEnter).ShouldBeTrue();
