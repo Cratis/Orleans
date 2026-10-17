@@ -104,6 +104,8 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
 
     /// <inheritdoc/>
     /// <remarks>
+    /// A transition the current state refuses does nothing and completes without an error; it is not a failure. Call
+    /// <see cref="CanTransitionTo{TState}"/> first when the caller needs to branch on whether it is allowed.
     /// A request admitted during an ongoing transition completes its task before it is executed. Queued targets
     /// run in FIFO order. If no state has been entered since a target's request-time guard began, its admission decision stands.
     /// Otherwise, it is checked against the state it would leave and silently skipped if refused. If the drain fails,
@@ -162,7 +164,8 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
     /// <returns>Task representing the asynchronous operation.</returns>
     /// <remarks>
     /// This behaves exactly as <see cref="TransitionTo{TState}"/>: the transition only happens when the current state
-    /// allows it. Requests admitted while entering a state complete their tasks on admission. Queued targets run in
+    /// allows it, and a refused transition does nothing and completes without an error. Call
+    /// <see cref="CanTransitionTo(Type)"/> first when the caller needs to branch on it. Requests admitted while entering a state complete their tasks on admission. Queued targets run in
     /// FIFO order. If no state has been entered since a target's request-time guard began, its admission decision stands. Otherwise,
     /// it is checked against the state it would leave and silently skipped if refused. A failed drain discards pending
     /// requests and reports the failure to its owner. Use it when the target state is only known as a <see cref="Type"/>.
