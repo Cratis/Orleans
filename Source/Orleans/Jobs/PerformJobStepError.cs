@@ -66,11 +66,11 @@ public record PerformJobStepError(object PartialResult, IList<string> ErrorMessa
         new(partialResult, _cancelledErrorMessage, string.Empty, true);
 
     /// <summary>
-    /// Creates <see cref="PerformJobStepError"/> for a cancelled job step with partial result.
+    /// Creates <see cref="PerformJobStepError"/> for a cancelled job step without a partial result.
     /// </summary>
     /// <returns>The <see cref="PerformJobStepError"/>.</returns>
     public static PerformJobStepError CancelledWithNoResult() =>
-        new(string.Empty, _cancelledErrorMessage, string.Empty, true);
+        new(null!, _cancelledErrorMessage, string.Empty, true);
 
     /// <summary>
     /// Try to get the partial result.
