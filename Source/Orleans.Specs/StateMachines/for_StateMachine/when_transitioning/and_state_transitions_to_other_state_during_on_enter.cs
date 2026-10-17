@@ -7,7 +7,7 @@ public class and_state_transitions_to_other_state_during_on_enter : given.a_stat
 {
     protected override Type InitialState => typeof(StateThatSupportsTransitioningFrom);
 
-    async Task Because() => await StateMachine.TransitionTo<StateThatTransitionsOnEnter>();
+    async Task Because() => await StateMachine.TransitionTo<StateThatTransitionsOnEnter>().WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
     [Fact] void should_finish_state_before_transitioning() => (on_calls[2].Type == typeof(StateThatTransitionsOnEnter) && on_calls[2].IsEnter).ShouldBeTrue();
     [Fact] void should_leave_state_before_transitioning() => (on_calls[3].Type == typeof(StateThatTransitionsOnEnter) && !on_calls[3].IsEnter).ShouldBeTrue();
