@@ -13,6 +13,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public bool ShouldBeRemovedAfterCompleted;
     public bool ShouldBeRemovedAfterCompletedWithFailures;
     public bool ShouldBeResumable;
+    public Func<Task>? BeforeResuming;
+    public int BeforeResumingCount;
     public HashSet<JobStepStage> StagesContinuingOnFailure = [];
 
     public Type GrainType => typeof(ISomeJob);
@@ -32,6 +34,9 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public int AllStepsCompletedCount;
     public int StoppedCount;
     public bool FailWrites;
+    public int WriteAttempts;
+    public bool PersistBeforeFailingWrite;
+    public List<SomeJobState> WrittenStates = [];
     public List<JobStepId> HandledStepResults = [];
     public int ResultsSeenAtCompletion;
     public int SuccessfulStepsAtCompletion;
@@ -56,13 +61,40 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
 
     protected override Task<bool> CanResume() => Task.FromResult(ShouldBeResumable);
 
+    protected override Task OnBeforeResumingJobSteps()
+    {
+        BeforeResumingCount++;
+        return BeforeResuming?.Invoke() ?? Task.CompletedTask;
+    }
+
     protected override Task OnStopped()
     {
         StoppedCount++;
         return Task.CompletedTask;
     }
 
-    protected override Task WriteStateAsync() => FailWrites ? Task.FromException(new InvalidOperationException("The write failed")) : base.WriteStateAsync();
+    protected override async Task WriteStateAsync()
+    {
+        WriteAttempts++;
+        if (!FailWrites || PersistBeforeFailingWrite)
+        {
+            await base.WriteStateAsync();
+            WrittenStates.Add(new()
+            {
+                Id = State.Id,
+                Type = State.Type,
+                Request = State.Request,
+                Status = State.Status,
+                StatusChanges = State.StatusChanges.ToList(),
+                DrainPending = State.DrainPending,
+                Progress = State.Progress with { Stages = State.Progress.Stages.Select(stage => stage with { }).ToList() }
+            });
+        }
+        if (FailWrites)
+        {
+            throw new InvalidOperationException("The write failed");
+        }
+    }
 
     protected override JobStageFailureBehavior GetFailureBehaviorFor(JobStepStage stage) =>
         StagesContinuingOnFailure.Contains(stage) ? JobStageFailureBehavior.ContinueWithNextStage : JobStageFailureBehavior.StopJob;

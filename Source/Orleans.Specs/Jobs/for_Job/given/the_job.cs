@@ -97,6 +97,17 @@ public class the_job : Specification
     protected static void DoesNotDrain(Mock<ISomeJobStep> step) =>
         step.Setup(_ => _.Drain(It.IsAny<long>(), It.IsAny<TimeSpan>())).ReturnsAsync(new JobStepDrainResult(false, JobStepStatus.Running, null));
 
+    protected void ConfigureSilo()
+    {
+        _silo.AddService(_jobsStorage);
+        _silo.AddService(_jobTypes);
+        _silo.AddService(Options.Create(CreateOptions()));
+        _silo.AddService(NullLogger<IJob>.Instance);
+        _silo.AddService(NullLogger<ObserverManager<JobStepId, IJobObserver>>.Instance);
+        var loggerFactory = Substitute.For<ILoggerFactory>();
+        _silo.AddService(loggerFactory);
+    }
+
     void RecordJobStepStatus(JobStepId jobStepId, JobStepStatus status) => StoredJobStep(jobStepId).Status = status;
 
     async Task Establish()
@@ -117,13 +128,7 @@ public class the_job : Specification
             return Task.FromResult(Catch<IImmutableList<JobStepState>>.Success(states.ToImmutableList()));
         });
         _jobTypes.GetFor(Arg.Any<Type>()).Returns(Result<JobType, IJobTypes.GetForError>.Success(new JobType("SomeJob")));
-        _silo.AddService(_jobsStorage);
-        _silo.AddService(_jobTypes);
-        _silo.AddService(Options.Create(CreateOptions()));
-        _silo.AddService(NullLogger<IJob>.Instance);
-        _silo.AddService(NullLogger<ObserverManager<JobStepId, IJobObserver>>.Instance);
-        var loggerFactory = Substitute.For<ILoggerFactory>();
-        _silo.AddService(loggerFactory);
+        ConfigureSilo();
         _jobId = Guid.Parse("fefd1ea0-f739-4d68-8817-6c85f722dec4");
         _jobKey = new("event-store", "namespace");
         _job = await _silo.CreateGrainAsync<SomeJob>(_jobId, _jobKey);

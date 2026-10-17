@@ -190,6 +190,12 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     public async Task<Result<ResumeJobSuccess, ResumeJobError>> Resume()
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
+
+        // Stopped is written before workers report their stops. Only an already accounted execution may be
+        // restored if the hook rejects this resume; stage preparation must not change this entry-time decision.
+        var stoppedProgress = State.Status is JobStatus.Stopped && !State.DrainPending && State.Progress.IsStopped
+            ? State.Progress with { Stages = State.Progress.Stages.Select(stage => stage with { }).ToList() }
+            : null;
         try
         {
             if (State.Status is JobStatus.Failed)
@@ -295,13 +301,25 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (!await TryWriteStatusChanged(JobStatus.Running))
             {
                 State.Progress.StoppedSteps = stoppedSteps;
+                if (stoppedProgress is not null)
+                {
+                    State.Progress = stoppedProgress;
+
+                    // The write may have reached storage despite its failed acknowledgement. A fresh activation
+                    // must read the durable outcome rather than serve this activation's restored counters.
+                    DeactivateOnIdleDuringShutdown();
+                }
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
 
-            // Reports of the drained execution are told apart by their generation from here on.
+            if (!await TryRunResumeHook(stoppedProgress))
+            {
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
+
+            // Only a successful hook begins dispatch. Until then, late drained reports must stay accounted for.
             // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
             _accountedByDrain.Clear();
-            await OnBeforeResumingJobSteps();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
         }
         catch (Exception ex)
