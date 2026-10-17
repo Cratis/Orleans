@@ -272,7 +272,6 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             // Reports of the drained execution are told apart by their generation from here on.
-            // A new execution counts afresh; storage and progress already reflect the earlier one.
             // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
             _accountedByDrain.Clear();
             await OnBeforeResumingJobSteps();
