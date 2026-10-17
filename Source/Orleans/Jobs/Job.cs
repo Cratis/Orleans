@@ -331,6 +331,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Stopping();
+            DisposeStageAdmissionTimer();
             _ = await WriteStatusChanged(JobStatus.Stopped);
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
@@ -365,6 +366,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Removing();
+            DisposeStageAdmissionTimer();
             _ = await WriteStatusChanged(JobStatus.Removing);
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
@@ -590,7 +592,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             // A stage that could not be asked about yet counts as stopped as it stands, but the job is still running.
-            if (_stageAdmissionTimer is not null && State.Status is JobStatus.Running)
+            if (IsWaitingToAdmitNextStage)
             {
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
             }

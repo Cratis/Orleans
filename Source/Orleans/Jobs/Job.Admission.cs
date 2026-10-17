@@ -19,6 +19,28 @@ public abstract partial class Job<TRequest, TJobState>
     }
 
     /// <summary>
+    /// Gets whether the job is waiting to ask about a stage it could not get an answer for.
+    /// </summary>
+    bool IsWaitingToAdmitNextStage =>
+        _stageAdmissionTimer is not null &&
+        State.Status is JobStatus.Running &&
+        State.Progress.Stages.Current() is { IsStarted: false };
+
+    static async Task<bool> WaitForAnswer(Task<bool> answer, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await answer.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The answer is abandoned, so its fault, if it comes, is observed rather than left unobserved.
+            _ = answer.ContinueWith(task => _ = task.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Asks every registered <see cref="IJobAdmission"/>, in registration order, whether an execution may run.
     /// </summary>
     /// <param name="request">The request the job was started with, or null when it is not known.</param>
@@ -51,7 +73,8 @@ public abstract partial class Job<TRequest, TJobState>
             foreach (var admission in admissions)
             {
                 // Awaited with the token as well as handed it: an implementation that ignores it cannot hold the turn.
-                if (!await admission.MayRun(question, bound.Token).WaitAsync(bound.Token))
+                var answer = admission.MayRun(question, bound.Token);
+                if (!await WaitForAnswer(answer, bound.Token))
                 {
                     _logger.NotAdmitted(checkPoint);
                     return Admission.Refused;
@@ -142,8 +165,7 @@ public abstract partial class Job<TRequest, TJobState>
             return false;
         }
 
-        _stageAdmissionTimer?.Dispose();
-        _stageAdmissionTimer = null;
+        DisposeStageAdmissionTimer();
         return true;
     }
 
@@ -161,23 +183,34 @@ public abstract partial class Job<TRequest, TJobState>
             new GrainTimerCreationOptions { DueTime = bound, Period = bound });
     }
 
+    void DisposeStageAdmissionTimer()
+    {
+        _stageAdmissionTimer?.Dispose();
+        _stageAdmissionTimer = null;
+    }
+
     async Task AskAgainAboutNextStage()
     {
-        if (State.Status is not JobStatus.Running || !IsStaged || State.Progress.Stages.Current() is not { IsStarted: false })
-        {
-            _stageAdmissionTimer?.Dispose();
-            _stageAdmissionTimer = null;
-            return;
-        }
-
         using var scope = _logger.BeginJobScope(JobId, JobKey);
         try
         {
+            if (!IsWaitingToAdmitNextStage)
+            {
+                // Whatever was waited for has happened - the stage started or the job moved on - and what that left
+                // behind may have been held back by the wait.
+                DisposeStageAdmissionTimer();
+                if (State.Status is JobStatus.Running)
+                {
+                    _ = await HandleCompletionResult(await HandleCompletion());
+                }
+
+                return;
+            }
+
             var admission = await Admit(State.Request, "Stage");
             if (admission is Admission.Admitted)
             {
-                _stageAdmissionTimer?.Dispose();
-                _stageAdmissionTimer = null;
+                DisposeStageAdmissionTimer();
                 _ = await ResumeStagesLeftBetween();
             }
             else if (admission is Admission.Refused && await StopForRefusedStage())

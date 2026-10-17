@@ -131,6 +131,7 @@ public abstract partial class Job<TRequest, TJobState>
     Task<Result<StartJobError>> StartStage(GrainId grainId, JobStageProgress stage)
     {
         _logger.StartingStage(stage.Stage, stage.TotalSteps);
+        DisposeStageAdmissionTimer();
         stage.IsStarted = true;
         return StartAndSubscribeToJobSteps(grainId, StepsIn(stage.Stage));
     }
