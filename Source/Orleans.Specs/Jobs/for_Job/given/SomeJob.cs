@@ -19,8 +19,13 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
 
     public SomeJobState CurrentState => State;
 
-    protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(SomeRequest request) =>
-        Task.FromResult<IImmutableList<JobStepDetails>>(StepsToPrepare.ToImmutableList());
+    public int PrepareStepsCount;
+
+    protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(SomeRequest request)
+    {
+        PrepareStepsCount++;
+        return Task.FromResult<IImmutableList<JobStepDetails>>(StepsToPrepare.ToImmutableList());
+    }
 
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;

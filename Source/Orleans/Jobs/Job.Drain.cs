@@ -172,6 +172,7 @@ public abstract partial class Job<TRequest, TJobState>
 
         _startStepsTimer?.Dispose();
         _startStepsTimer = null;
+        DisposeStageAdmissionTimer();
     }
 
     async Task<List<(JobStepId StepId, JobStepDrainResult Result)>> DrainEach(Dictionary<JobStepId, IJobStep> steps, TimeSpan timeout, Stopwatch elapsed)

@@ -153,6 +153,20 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             return StartJobError.AlreadyBeenPrepared;
         }
 
+        // Nothing is changed or written before the owner has been asked: a refused job leaves no trace.
+        switch (await Admit(request, "Start"))
+        {
+            case Admission.Refused:
+                if (ExecutionGeneration() == 0)
+                {
+                    DeactivateOnIdleDuringShutdown();
+                }
+
+                return StartJobError.NotAdmitted;
+            case Admission.Failed:
+                return StartJobError.Unknown;
+        }
+
         State.Created = DateTimeOffset.UtcNow;
         State.Request = request;
         State.Details = GetJobDetails();
@@ -188,6 +202,19 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 _logger.NotResumingWhileDrainIsPending();
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
+            }
+
+            // An execution that continues or begins again - a resume, or a rehydration after a silo went away - is
+            // asked about once, before anything of it runs.
+            if (JobIsPrepared() && State.Status is JobStatus.Running or JobStatus.StartingSteps or JobStatus.Stopped or JobStatus.Removing)
+            {
+                switch (await Admit(State.Request, "Resume"))
+                {
+                    case Admission.Refused:
+                        return await RefuseResume();
+                    case Admission.Failed:
+                        return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+                }
             }
 
             // A job can be left persisted as running with every one of its steps already accounted for: the
@@ -304,6 +331,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Stopping();
+            DisposeStageAdmissionTimer();
             _ = await WriteStatusChanged(JobStatus.Stopped);
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
@@ -338,6 +366,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Removing();
+            DisposeStageAdmissionTimer();
             _ = await WriteStatusChanged(JobStatus.Removing);
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
@@ -562,6 +591,12 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
             }
 
+            // A stage that could not be asked about yet counts as stopped as it stands, but the job is still running.
+            if (IsWaitingToAdmitNextStage)
+            {
+                return HandleCompletionSuccess.AllStepsNotCompletedYet;
+            }
+
             // When all steps have been stopped or completed
             if (State.Status is JobStatus.Stopped or JobStatus.Removing)
             {
@@ -594,20 +629,25 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 await ClearStateAsync();
             }
-            try
-            {
-                DeactivateOnIdle();
-            }
-            catch (InvalidOperationException)
-            {
-                // Grain activation may already be invalid during silo shutdown.
-            }
+            DeactivateOnIdleDuringShutdown();
             return shouldClearState ? HandleCompletionSuccess.ClearedState : HandleCompletionSuccess.NotClearedState;
         }
         catch (Exception ex)
         {
             _logger.Failed(ex);
             return JobError.UnknownError;
+        }
+    }
+
+    void DeactivateOnIdleDuringShutdown()
+    {
+        try
+        {
+            DeactivateOnIdle();
+        }
+        catch (InvalidOperationException)
+        {
+            // Grain activation may already be invalid during silo shutdown.
         }
     }
 

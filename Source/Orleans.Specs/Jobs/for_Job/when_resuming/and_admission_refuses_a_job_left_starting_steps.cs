@@ -1,0 +1,24 @@
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+using Moq;
+
+namespace Cratis.Orleans.Jobs.for_Job.when_resuming;
+
+public class and_admission_refuses_a_job_left_starting_steps : given.a_job_left_running
+{
+    void Establish()
+    {
+        _job.CurrentState.Request = new given.SomeRequest();
+        _job.CurrentState.StatusChanges.Insert(0, new() { Status = JobStatus.PreparingJob });
+        _job.CurrentState.Status = JobStatus.StartingSteps;
+        Admit(given.SomeAdmission.Refusing());
+    }
+
+    async Task Because() => _result = await _job.Resume();
+
+    [Fact] void should_report_not_admitted() => ((CannotResumeJobError)_result.AsT1).ShouldEqual(CannotResumeJobError.NotAdmitted);
+    [Fact] void should_be_stopped() => _job.CurrentState.Status.ShouldEqual(JobStatus.Stopped);
+    [Fact] void should_have_a_drain_pending() => _job.CurrentState.DrainPending.ShouldBeTrue();
+    [Fact] void should_not_start_any_step() => _unfinished.Verify(_ => _.Start(It.IsAny<GrainId>()), Times.Never);
+}

@@ -694,6 +694,9 @@ public class JobsManager(
             case CannotResumeJobError.JobCannotBeResumed:
                 logger.JobCannotBeResumed(jobId);
                 break;
+            case CannotResumeJobError.NotAdmitted:
+                logger.JobNotAdmitted(jobId);
+                break;
             default:
                 logger.FailedResumingJob(jobId);
                 break;

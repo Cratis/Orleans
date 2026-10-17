@@ -29,6 +29,10 @@ public class the_job : Specification
 
     protected virtual JobsOptions CreateOptions() => new();
 
+    protected int Writes => _silo.StorageStats<SomeJob, SomeJobState>().Writes;
+
+    protected void Admit(params SomeAdmission[] admissions) => _silo.AddService<IEnumerable<IJobAdmission>>(admissions);
+
     protected int StoredJobStepsWith(JobStepStatus status) => _storedJobStepStates.Count(state => state.Status == status);
 
     protected Mock<ISomeJobStep> AddJobStep(JobStepId jobStepId, JobStepStage? stage = null)

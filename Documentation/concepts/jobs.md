@@ -410,6 +410,77 @@ your next `StopAndDrain` drains it again. Use `StopAndDrain` only once every sil
 The drain stops the job and its steps; it does not decide whether they may run again. Starting or resuming
 the job later is up to whoever owns it.
 
+## Admit or refuse a job's execution
+
+An owner that changes what its jobs may do needs a way to stop them from running again under the old rules. An
+`IJobAdmission` is that way, available from v1.21.0. A job asks it before an execution begins or begins again,
+and a refusal stops the job without running any of its step code:
+
+```csharp
+public class TenantJobAdmission(ITenantCatalog tenants) : IJobAdmission
+{
+    public async Task<bool> MayRun(JobAdmissionRequest request, CancellationToken cancellationToken) =>
+        await tenants.IsActive(request.JobKey.Namespace, cancellationToken);
+}
+
+siloBuilder.AddJobAdmission<TenantJobAdmission>();
+```
+
+`JobAdmissionRequest` carries the job's key, id, type and request. It is handed only to implementations in the
+job's own silo, so it is never serialized. Registrations are singletons and are asked in registration order; the
+first refusal ends the question.
+
+A job asks at these check points:
+
+- `Start`, after the checks that refuse a job that already exists and before anything is written;
+- every path into `Resume`: `IJob.Resume`, `IJobsManager.Resume`, rehydration after a silo went away, and automatic
+  recovery;
+- each later stage of a job with stages, once the steps of the stage before it have reached their outcome.
+
+What a refusal does depends on the job's status:
+
+| The job is | A refusal |
+| --- | --- |
+| Starting | `StartJobError.NotAdmitted`. Nothing is written and no step is prepared |
+| `Stopped` or being removed, and resumed | `CannotResumeJobError.NotAdmitted`. Nothing is written |
+| `Running` or starting its steps, and resumed - as when a silo went away | `CannotResumeJobError.NotAdmitted`. The job is persisted as `Stopped` with a pending drain, and the drain runs in a turn of its own: nothing is drained or started in the turn that was refused |
+| Between two stages | The job is stopped, the next stage never starts, and `OnStopped` runs once |
+
+Refusing the resume of a `Running` job whose steps have all completed leaves it `Stopped`, and `OnAllStepsCompleted`
+never runs. `IJobsManager.Resume` stays a `bool` and answers `false` on a refusal. The drain that follows a refusal of a
+running job can time out like any other. The job then stays `Stopped` with its drain pending until you call
+`StopAndDrain` or the job is next activated, which completes it.
+
+An implementation that throws, or does not answer within the bound the job applies - below half the Orleans
+response timeout - has not refused. The operation fails instead: `Start` answers `StartJobError.Unknown`, and
+`Resume` answers `CannotResumeJobError.Unknown`. Nothing changes, so a job that rehydration found running stays
+`Running` in storage, and rehydration asks again only on its next pass. A job that cannot be asked at its next
+stage stays `Running`, does not start the stage, and asks again at the same interval until it gets an answer.
+
+Admission gates every new execution - `Start`, every `Resume` path, every later stage - and the drain ends the
+one that is running. An owner that changes what its jobs may do therefore quiesces them in this order: call
+`IJobs.StopAndDrain` for its running jobs first, then refuse them from `MayRun`. Refusing without draining leaves
+the running execution to finish, and draining without refusing lets the next resume or stage begin again.
+
+Step work starts only through the job's fan-out, in the turn of an admitted `Start`, `Resume` or stage. A step
+never resumes work on its own when it reactivates, and the engine has no failed-step retry. A restart after a stale
+stop or a deferred start belongs to the same execution, so any `Stop` or drain of that execution cancels it.
+
+:::caution[`MayRun` runs inside the job's turn]
+The job asks from its own non-reentrant turn. An implementation can use storage, memory, and calls to grains that
+interleave or are stateless workers. It must never call the job it is asked about - through `IJob`, `IJobDrain`,
+`IJobs` or `IJobsManager` - nor that job's steps, nor a method that does not interleave on a grain that may be
+waiting for this job's `Start` or `Resume`. The bound turns such a call into a failed operation instead of a hang,
+but only after the wait.
+:::
+
+:::note[Register on every silo that can host the job, and run v1.21.0 or later]
+A silo without a registration admits every job, so register the admission on every silo that can host the job
+types it concerns. A silo older than v1.21.0 does not ask at all; gate the owner's change on every silo running
+v1.21.0 or later. A caller from an older release meets the new outcome as its default branch, as the values travel
+as integers.
+:::
+
 ## Deliver outside input to the job, not its steps
 
 An external worker may call your application back with progress or a result while a step is running.
@@ -470,6 +541,9 @@ steps; successful steps remain completed. An interrupted step may execute again,
 idempotency or receiver-owned deduplication. A durable `Stop()` remains stopped: automatic recovery excludes stopped
 jobs and only restarts stopped steps when recovering an interrupted explicit `Resume()` with no later accepted step stop.
 Explicit `Resume()` is still how you resume a stopped job.
+
+A registered [`IJobAdmission`](#admit-or-refuse-a-jobs-execution) is asked before a rehydrated job resumes. A refusal stops
+the job, an exception or timeout leaves it as it was, and rehydration asks again only on its next pass.
 
 A job interrupted during `PreparingJob` or `PreparingSteps` cannot safely resume an unfinished plan. Without live
 preparation in its activation, `Resume()` fails with `CannotResumeJobError.JobIsNotPrepared`; it does not claim that

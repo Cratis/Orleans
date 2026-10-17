@@ -2,7 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Moq;
-using Orleans.TestKit;
 
 namespace Cratis.Orleans.Jobs.for_Job.given;
 
@@ -15,8 +14,6 @@ public class a_running_job_with_two_steps : the_job
     protected JobStepId _secondId;
     protected Mock<ISomeJobStep> _first;
     protected Mock<ISomeJobStep> _second;
-
-    protected int Writes => _silo.StorageStats<SomeJob, SomeJobState>().Writes;
 
     async Task Establish()
     {
