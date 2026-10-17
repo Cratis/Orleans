@@ -284,8 +284,14 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// <param name="run">The run begun with <see cref="BeginTestRun"/>.</param>
     /// <param name="currentState">The state to give the work.</param>
     /// <returns>What the work returned.</returns>
+    /// <exception cref="JobStepTestRunWasSuperseded">Thrown when the step has begun a later run.</exception>
     internal async Task<Catch<JobStepResult>> PerformInRun(JobStepRun run, TState currentState)
     {
+        if (!ReferenceEquals(run, _run))
+        {
+            throw new JobStepTestRunWasSuperseded($"{GetType().Name} has begun a later run. Perform through the test run begun last.");
+        }
+
         // Task.Run captures the run from this execution context; restore it so the caller never carries it.
         var previous = JobStepRun.Current;
         JobStepRun.Current = run;

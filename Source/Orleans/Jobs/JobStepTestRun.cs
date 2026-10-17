@@ -71,6 +71,7 @@ public sealed class JobStepTestRun<TState>
     /// <param name="currentState">The state to give the step's work.</param>
     /// <returns>What the step's work returned. Admission is closed once it has returned, as a drain does.</returns>
     /// <exception cref="JobStepAlreadyHasALiveRun">Thrown when this test run has already performed its step.</exception>
+    /// <exception cref="JobStepTestRunWasSuperseded">Thrown when the step has begun a later run since this one.</exception>
     /// <remarks>
     /// The outcome is neither recorded nor delivered to a job.
     /// </remarks>

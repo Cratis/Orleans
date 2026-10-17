@@ -346,7 +346,8 @@ token, and returns the `Catch<JobStepResult>` your step returned. Callbacks your
 `run.IsOnActivation` tells a spec whether the code that is running is on it, which is how you check that
 state is only touched from a callback. Pass your own `TaskScheduler` to `BeginTestRun` to use another stand-in.
 A run performs once; to perform again, begin a new run after the earlier one's work and callbacks have settled, or
-`BeginTestRun` throws `JobStepAlreadyHasALiveRun`.
+`BeginTestRun` throws `JobStepAlreadyHasALiveRun`. Beginning a run replaces the step's earlier one, so perform
+through the run you began last: an earlier run's `Perform` throws `JobStepTestRunWasSuperseded`.
 
 Stopping and giving up are separate moments, and a step should be specified at both:
 
