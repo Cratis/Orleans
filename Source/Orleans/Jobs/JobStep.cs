@@ -258,6 +258,62 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     public Task<TState> GetState() => Task.FromResult(State);
 
     /// <summary>
+    /// Begins a run for a specification: started and running, with no work launched and no outcome delivery.
+    /// </summary>
+    /// <param name="scheduler">The scheduler standing in for the activation.</param>
+    /// <returns>The <see cref="JobStepRun"/>.</returns>
+    /// <exception cref="JobStepAlreadyHasALiveRun">Thrown when the earlier run has not settled.</exception>
+    internal JobStepRun BeginTestRun(TaskScheduler scheduler)
+    {
+        if (_run is { IsSettled: false })
+        {
+            throw new JobStepAlreadyHasALiveRun($"{GetType().Name} still has a live run. Begin a new test run once the earlier one has settled.");
+        }
+
+        var run = new JobStepRun(++_lastRunId, scheduler, null);
+        run.Started();
+        run.Running();
+        _run = run;
+        return run;
+    }
+
+    /// <summary>
+    /// Performs the step under a run begun for a specification, off the activation. Admission closes once the work
+    /// has returned, as a drain does. Nothing is recorded or delivered.
+    /// </summary>
+    /// <param name="run">The run begun with <see cref="BeginTestRun"/>.</param>
+    /// <param name="currentState">The state to give the work.</param>
+    /// <returns>What the work returned.</returns>
+    internal async Task<Catch<JobStepResult>> PerformInRun(JobStepRun run, TState currentState)
+    {
+        // Task.Run captures the run from this execution context; restore it so the caller never carries it.
+        var previous = JobStepRun.Current;
+        JobStepRun.Current = run;
+        Task<Catch<JobStepResult>> performed;
+        try
+        {
+            performed = Task.Run(async () =>
+            {
+                try
+                {
+                    return await PerformStep(currentState, run.Cancellation);
+                }
+                finally
+                {
+                    run.CloseAdmission();
+                }
+            });
+            run.WorkerSettled = performed;
+        }
+        finally
+        {
+            JobStepRun.Current = previous;
+        }
+
+        return await performed;
+    }
+
+    /// <summary>
     /// Prepare the step before it starts.
     /// </summary>
     /// <param name="request">The request object for the step.</param>
