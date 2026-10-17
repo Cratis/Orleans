@@ -326,6 +326,32 @@ has the outcome, and moves its stages on. It does not run `OnStepCompletedOrStop
 A step hosted by a silo older than v1.20.0 reports no generation, even when a newer job started it, and a run
 started by a job on an older silo has none to report. Their reports keep the earlier behavior.
 
+### A failed resume hook can leave a stopped job ready to retry
+
+A resume hook can reject work that is not safe to run yet. If the job entered `Resume()` as `Stopped`, had no
+pending drain, and had already accounted for every worker, a failure in `OnBeforeResumingJobSteps` restores its
+stopped progress and stage flags and persists another `Stopped` status. No steps start, no drain begins, and
+`OnStopped` does not run again. `Resume()` reports failure; a later call can retry the hook.
+
+Eligibility uses the pre-resume `JobProgress.IsStopped` accounting, not proof that every worker is physically
+quiescent. Use [`StopAndDrain`](#stop-a-job-and-wait-until-it-is-drained) when you need that guarantee; a stopped
+status or completed accounting alone is not a drain acknowledgement.
+
+The job still persists `Running` before calling the hook. A consumer coordinating its own replay entry may
+need to see that status to adopt this job without recursively resuming it. Drain accounting is kept until the
+hook succeeds, so a late report cannot count an already drained outcome twice during the failed attempt.
+
+This compensation is deliberately limited. A stop whose workers have not all reported, a removal, or recovery
+of a job already `Running` or `StartingSteps` may still have live work. Hook failure does not roll those jobs
+back or drain them. Nor does compensation cover a failure after step dispatch begins: some steps may already
+be running.
+
+If the resume or compensating status write fails, the eligible stopped job's activation retires rather than
+serve an uncertain state. Recovery reads whichever status reached storage. A crash after `Running` was written
+but before compensation can also leave that status persisted; cold recovery can retry the hook and the stopped
+steps from the earlier execution. None of this guarantees an automatic retry or makes a permanently failing
+hook succeed. Inspect the failed resume and correct its cause before retrying.
+
 ## Testing your job steps
 
 A step's work only reaches its grain through `TryInvokeOnActivation`, and that needs a run. Host your step in
