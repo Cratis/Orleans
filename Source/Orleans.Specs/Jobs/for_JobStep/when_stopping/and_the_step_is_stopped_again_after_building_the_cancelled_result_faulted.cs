@@ -41,10 +41,6 @@ public class and_the_step_is_stopped_again_after_building_the_cancelled_result_f
         _jobStep.Dispose();
     }
 
-    static bool IsTheCancelledWithNoResultFallback(JobStepResult result)
-    {
-        // Pin the current fallback representation; update this expectation with Cratis/Orleans#93.
-        var expected = PerformJobStepError.CancelledWithNoResult();
-        return result.TryGetError(out var error) && error.Cancelled && Equals(error.PartialResult, expected.PartialResult) && error.ErrorMessages.SequenceEqual(expected.ErrorMessages);
-    }
+    static bool IsTheCancelledWithNoResultFallback(JobStepResult result) =>
+        result.TryGetError(out var error) && error.Cancelled && !error.HasPartialResult && error.ErrorMessages.SequenceEqual(["Job step task was cancelled"]);
 }
