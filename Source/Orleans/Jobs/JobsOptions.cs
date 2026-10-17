@@ -103,6 +103,83 @@ public class JobsOptions
     public int MaxConcurrentStepStarts { get; init; } = 16;
 
     /// <summary>
+    /// Gets the maximum number of job steps a single job keeps active at once, or null to start every step of the
+    /// job (or of its current stage) up front.
+    /// </summary>
+    /// <remarks>
+    /// With a limit the job starts that many steps and starts the next one each time a step reaches an outcome, so a
+    /// job with thousands of steps does not activate them all at once. Steps that have not started yet stay in
+    /// storage with their prepared state, and a job that resumes rebuilds its window from storage. A job can override
+    /// the limit through <c language="csharp">Job.MaxActiveSteps</c>. Values below 1 are treated as 1. Defaults to null.
+    /// </remarks>
+    public int? MaxActiveStepsPerJob { get; init; }
+
+    /// <summary>
+    /// Gets how many times a job step is attempted before its failure counts as the job's failure.
+    /// </summary>
+    /// <remarks>
+    /// An attempt that fails while more are left is scheduled again by the job after a backoff, instead of being
+    /// counted as failed. A job can decide per failure through <c language="csharp">Job.ShouldRetryStep</c>. Values below 1 are
+    /// treated as 1. Defaults to 1, which never retries.
+    /// </remarks>
+    public int MaxStepAttempts { get; init; } = 1;
+
+    /// <summary>
+    /// Gets the delay before the second attempt of a failed job step; every further attempt doubles it.
+    /// Defaults to 5 seconds.
+    /// </summary>
+    public TimeSpan StepRetryBackoff { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Gets the longest delay between two attempts of a job step. Defaults to 5 minutes.
+    /// </summary>
+    public TimeSpan MaxStepRetryBackoff { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Gets how often a running job checks its steps in storage and finalizes itself when every step is done.
+    /// </summary>
+    /// <remarks>
+    /// The counters a job keeps while steps report to it are a cache: a report that never arrived leaves the job
+    /// running with every step finished. The watchdog counts the steps in storage, finalizes a job whose steps are
+    /// all done and, when <see cref="StepLeaseTimeout"/> is on, restarts steps whose owner is gone. A zero, negative
+    /// or infinite interval turns the watchdog off. Defaults to 1 minute.
+    /// </remarks>
+    public TimeSpan JobWatchdogInterval { get; init; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Gets how long a running job step may go without a heartbeat before the watchdog may restart it.
+    /// </summary>
+    /// <remarks>
+    /// Off by default. When on, a running step records a lease - its silo, activation and last heartbeat - and renews
+    /// it with every state write and on a timer. The watchdog restarts a step only when its owner silo is no longer
+    /// part of the cluster and its lease has expired. A step without a lease, written by a release that did not know
+    /// them, is left alone for one lease period after its last change and then started again, which is harmless for
+    /// a step that is still running. A zero, negative or infinite value turns leases off.
+    /// </remarks>
+    public TimeSpan StepLeaseTimeout { get; init; } = TimeSpan.Zero;
+
+    /// <summary>
+    /// Gets how many times a job step delivers its outcome to its job before it leaves the delivery to the job's
+    /// watchdog. Defaults to 10.
+    /// </summary>
+    /// <remarks>
+    /// The outcome is persisted before it is delivered, so a delivery that never succeeds loses nothing: the step stays
+    /// in the state it persisted and the job's watchdog accounts for it. Values below 1 are treated as 1.
+    /// </remarks>
+    public int StepDeliveryMaxAttempts { get; init; } = 10;
+
+    /// <summary>
+    /// Gets the delay before the second delivery of a step's outcome; every further delivery doubles it.
+    /// Defaults to 1 second.
+    /// </summary>
+    public TimeSpan StepDeliveryRetryDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Gets the longest delay between two deliveries of a step's outcome. Defaults to 30 seconds.
+    /// </summary>
+    public TimeSpan MaxStepDeliveryRetryDelay { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// Gets how long stopping a job step waits for its work to settle.
     /// </summary>
     /// <remarks>

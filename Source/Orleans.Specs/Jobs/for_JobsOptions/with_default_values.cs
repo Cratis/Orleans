@@ -12,4 +12,9 @@ public class with_default_values : Specification
     [Fact] void should_limit_rehydration_to_eight() => _options.MaxConcurrentRehydration.ShouldEqual(8);
     [Fact] void should_limit_cleanup_to_four() => _options.MaxConcurrentCleanup.ShouldEqual(4);
     [Fact] void should_limit_step_starts_to_sixteen() => _options.MaxConcurrentStepStarts.ShouldEqual(16);
+    [Fact] void should_not_bound_the_active_steps() => _options.MaxActiveStepsPerJob.ShouldBeNull();
+    [Fact] void should_not_retry_steps() => _options.MaxStepAttempts.ShouldEqual(1);
+    [Fact] void should_watch_running_jobs_every_minute() => _options.JobWatchdogInterval.ShouldEqual(TimeSpan.FromMinutes(1));
+    [Fact] void should_not_use_leases() => _options.StepLeaseTimeout.ShouldEqual(TimeSpan.Zero);
+    [Fact] void should_deliver_an_outcome_ten_times() => _options.StepDeliveryMaxAttempts.ShouldEqual(10);
 }

@@ -24,6 +24,6 @@ public class and_the_stage_admission_timer_is_disposed_on_stop : given.a_job_wit
         await _job.Stop();
     }
 
-    [Fact] void should_have_been_waiting_to_ask_again() => _timersBefore.ShouldEqual(1);
+    [Fact] void should_have_been_waiting_to_ask_again_and_watching() => _timersBefore.ShouldEqual(2);
     [Fact] void should_have_no_timer_left() => _silo.TimerRegistry.NumberOfActiveTimers.ShouldEqual(0);
 }

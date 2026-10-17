@@ -37,6 +37,15 @@ public interface IJob : IGrainWithGuidCompoundKey
     Task<Result<RemoveJobError>> Remove();
 
     /// <summary>
+    /// Run the steps of a job that completed with failures again, as a later attempt each.
+    /// </summary>
+    /// <returns>The number of steps that were run again, or the reason the job did not.</returns>
+    /// <remarks>
+    /// Opt-in per job type through <c language="csharp">Job.CanRetryFailedSteps</c>. It never changes what resuming does.
+    /// </remarks>
+    Task<Result<int, RetryFailedStepsError>> RetryFailed();
+
+    /// <summary>
     /// Report a successful completion of a job step.
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the step that was completed.</param>

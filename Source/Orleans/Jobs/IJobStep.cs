@@ -70,6 +70,18 @@ public interface IJobStep : IGrainWithGuidCompoundKey
     /// <param name="error">The <see cref="PerformJobStepError"/>.</param>
     /// <returns>Awaitable task.</returns>
     Task<Result<JobStepError>> ReportFailure(PerformJobStepError error);
+
+    /// <summary>
+    /// Run a step that failed again as a later attempt.
+    /// </summary>
+    /// <param name="jobGrainId">The <see cref="GrainId"/> of the job that schedules the attempt.</param>
+    /// <param name="attempt">The number of the attempt to run; it must be later than the one the step is on.</param>
+    /// <returns>The outcome of starting the attempt. Asking for an attempt the step is already on starts the step as <see cref="Start"/> does, so it is idempotent.</returns>
+    /// <remarks>
+    /// The job schedules the attempt after its backoff; the step never waits for it.
+    /// </remarks>
+    [AlwaysInterleave]
+    Task<Result<StartJobStepError>> Retry(GrainId jobGrainId, int attempt);
 }
 
 /// <summary>

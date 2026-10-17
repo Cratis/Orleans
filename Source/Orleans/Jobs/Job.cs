@@ -128,6 +128,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         if (JobIsPrepared())
         {
             _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
+            await CountStepsFromStorageAfterActivation();
+        }
+        if (State.Status is JobStatus.Running)
+        {
+            EnsureWatchdog(WatchdogStartupDelay);
         }
         if (State.DrainPending)
         {
@@ -270,7 +275,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
             // Steps in a stage that never started are still tracked after the running ones stopped, so a job with
             // stages always reloads what is left from the steps themselves.
-            if (_jobStepGrains is null or { Count: 0 } || IsStaged)
+            if (_jobStepGrains is null or { Count: 0 } || IsStaged || EffectiveMaxActiveSteps is not null)
             {
                 _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
             }
@@ -320,6 +325,8 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             // Only a successful hook begins dispatch. Until then, late drained reports must stay accounted for.
             // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
             _accountedByDrain.Clear();
+            _started.Clear();
+            _inFlight.Clear();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
         }
         catch (Exception ex)
@@ -349,8 +356,21 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Stopping();
+
+            // A stop that is not durable is not a stop: a restart would find the job running, so it is not reported as stopped.
+            var written = await WriteOrUndo(() => StatusChanged(JobStatus.Stopped));
+            if (written.TryGetException(out var writeException))
+            {
+                _logger.FailedStoppingJobBecauseItWasNotPersisted(writeException);
+
+                // The write may have reached storage despite its failed acknowledgement. A fresh activation
+                // must read the durable outcome rather than serve this activation's restored state.
+                DeactivateOnIdleDuringShutdown();
+                return StopJobError.CouldNotPersistStop;
+            }
+
             DisposeStageAdmissionTimer();
-            _ = await WriteStatusChanged(JobStatus.Stopped);
+            await AccountForStepsThatNeverStarted();
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
             await StopNonCompletedStepsAndEnsureCompletion(false);
@@ -386,6 +406,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             _logger.Removing();
             DisposeStageAdmissionTimer();
             _ = await WriteStatusChanged(JobStatus.Removing);
+            await AccountForStepsThatNeverStarted();
 
             // Do not call OnStopped here because it should be called after all steps have been stopped
             await StopNonCompletedStepsAndEnsureCompletion(true);

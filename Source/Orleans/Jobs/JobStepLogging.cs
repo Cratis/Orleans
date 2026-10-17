@@ -102,6 +102,18 @@ public static partial class JobStepLogMessages
 
     [LoggerMessage(LogLevel.Warning, "Job step could not run its deferred start: {Error}")]
     internal static partial void DeferredStartFailed(this ILogger<IJobStep> logger, StartJobStepError error);
+
+    [LoggerMessage(LogLevel.Information, "Running job step again as attempt {Attempt}")]
+    internal static partial void RetryingAttempt(this ILogger<IJobStep> logger, int attempt);
+
+    [LoggerMessage(LogLevel.Warning, "The job did not acknowledge the job step outcome on delivery {Attempt}: {JobError}")]
+    internal static partial void FailedReportJobStepOutcome(this ILogger<IJobStep> logger, int attempt, JobError jobError);
+
+    [LoggerMessage(LogLevel.Warning, "Delivering the job step outcome to the job failed on delivery {Attempt}")]
+    internal static partial void FailedDeliveringJobStepOutcome(this ILogger<IJobStep> logger, Exception exception, int attempt);
+
+    [LoggerMessage(LogLevel.Warning, "The job did not acknowledge the job step outcome after {Attempts} deliveries; the persisted outcome is left for the job's watchdog")]
+    internal static partial void GaveUpDeliveringJobStepOutcome(this ILogger<IJobStep> logger, int attempts);
 }
 
 public static class JobStepScopes

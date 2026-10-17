@@ -28,4 +28,7 @@ public class NullJob : IJob
 
     /// <inheritdoc/>
     public Task<Result<RemoveJobError>> Remove() => Task.FromResult(Result.Success<RemoveJobError>());
+
+    /// <inheritdoc/>
+    public Task<Result<int, RetryFailedStepsError>> RetryFailed() => Task.FromResult(Result.Success<int, RetryFailedStepsError>(0));
 }

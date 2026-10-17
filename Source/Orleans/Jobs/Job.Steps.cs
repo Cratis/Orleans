@@ -21,12 +21,15 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if (await IgnoreStepOutcome(stepId, stopped: false))
+        var (ignored, attempt) = await IgnoreStepOutcome(stepId, stopped: false);
+        if (ignored)
         {
             return Result.Success<JobError>();
         }
         _logger.StepSuccessfullyCompleted(stepId);
         OutcomeCounted(stepId);
+        _acceptedOutcomes.Add((stepId, attempt));
+        _attemptsToRun.Remove(stepId);
         State.Progress.SuccessfulSteps++;
         CountStepOutcomeInStage(stepId, succeeded: true);
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -36,7 +39,7 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepStopped(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if (await IgnoreStepOutcome(stepId, stopped: true))
+        if ((await IgnoreStepOutcome(stepId, stopped: true)).Ignored)
         {
             return Result.Success<JobError>();
         }
@@ -49,12 +52,24 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if (await IgnoreStepOutcome(stepId, stopped: false))
+        var (ignored, attempt) = await IgnoreStepOutcome(stepId, stopped: false);
+        if (ignored)
         {
             return Result.Success<JobError>();
         }
+
+        _acceptedOutcomes.Add((stepId, attempt));
+        if (DecidesToRetry(stepId, jobStepResult, attempt))
+        {
+            // The failed attempt is persisted by the step; the job runs the next one after its backoff and counts
+            // nothing yet.
+            ScheduleStepRetry(stepId, attempt);
+            return Result.Success<JobError>();
+        }
+
         _logger.StepFailed(stepId);
         OutcomeCounted(stepId);
+        _attemptsToRun.Remove(stepId);
         State.Progress.FailedSteps++;
         CountStepOutcomeInStage(stepId, succeeded: false);
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -159,7 +174,11 @@ public abstract partial class Job<TRequest, TJobState>
             {
                 // An unsubscribe failure must not hand an accounted-for step back to recovery.
                 _jobStepGrains?.Remove(stepId);
+                LeaveWindow(stepId);
             }
+
+            // A step that reached its outcome leaves room for the next one.
+            await FillWindow();
         }
     }
 
@@ -199,6 +218,11 @@ public abstract partial class Job<TRequest, TJobState>
         getJobSteps.RethrowError();
         var jobSteps = getJobSteps.AsT0;
         TrackStagesOf(jobSteps);
+        foreach (var jobStep in jobSteps.Where(_ => _.Status is JobStepStatus.Scheduled or JobStepStatus.Running))
+        {
+            // Steps that were running when the job was left stay in the window whatever its size.
+            _inFlight.Add(jobStep.Id.JobStepId);
+        }
         return jobSteps.ToDictionary(jobStep => jobStep.Id.JobStepId, GetJobStepGrain);
     }
     Task<Dictionary<JobStepId, IJobStep>> GetIdAndGrainReferenceForNonCompletedJobSteps() =>
@@ -334,9 +358,11 @@ public abstract partial class Job<TRequest, TJobState>
         return true;
     }
 
-    async Task<Result<StartJobError>> StartAndSubscribeToJobSteps(GrainId grainId, Dictionary<JobStepId, IJobStep> jobStepGrains)
+    async Task<Result<StartJobError>> StartAndSubscribeToJobSteps(GrainId grainId, Dictionary<JobStepId, IJobStep> allJobStepGrains)
     {
         _hasLiveStepTracking = true;
+        var jobStepGrains = SelectWindow(allJobStepGrains);
+        var stepsLeftWaiting = allJobStepGrains.Count - jobStepGrains.Count;
         var totalJobSteps = jobStepGrains.Count;
         var failedJobStepIds = new List<JobStepId>();
         foreach (var chunk in jobStepGrains.Chunk(MaxConcurrentJobStepStartups))
@@ -378,8 +404,14 @@ public abstract partial class Job<TRequest, TJobState>
         foreach (var failedJobStepId in failedJobStepIds)
         {
             CountStepOutcomeInStage(failedJobStepId, succeeded: false);
+            if (EffectiveMaxActiveSteps is not null)
+            {
+                // A step that never started leaves its place in the window to the next one.
+                LeaveWindow(failedJobStepId);
+                _jobStepGrains?.Remove(failedJobStepId);
+            }
         }
-        return failedJobStepIds.Count == totalJobSteps
+        return failedJobStepIds.Count == totalJobSteps && stepsLeftWaiting == 0
             ? StartJobError.AllJobStepsFailedStarting
             : StartJobError.FailedStartingSomeJobSteps;
     }
@@ -412,7 +444,7 @@ public abstract partial class Job<TRequest, TJobState>
     {
         try
         {
-            return (id, await jobStep.Start(grainId), null);
+            return (id, _attemptsToRun.TryGetValue(id, out var attempt) ? await jobStep.Retry(grainId, attempt) : await jobStep.Start(grainId), null);
         }
         catch (Exception ex)
         {
