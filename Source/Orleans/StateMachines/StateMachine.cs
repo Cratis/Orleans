@@ -20,11 +20,12 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
     static readonly MethodInfo _canTransitionToMethod = typeof(IState<TStoredState>).GetMethod(nameof(IState<TStoredState>.CanTransitionTo))!;
 
     readonly bool _hasSuppliedStorage;
+    readonly Queue<(Type TargetState, long AdmissionGeneration)> _scheduledTransitions = new();
     Dictionary<Type, IState<TStoredState>> _states = [];
     IState<TStoredState> _currentState = _noOpState;
+    long _entryGeneration;
     bool _isTransitioning;
     bool _isLeaving;
-    Type? _scheduledTransition;
     ILogger<StateMachine<TStoredState>>? _logger;
 
     /// <summary>
@@ -84,7 +85,7 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
 
         InvalidTypeForState.ThrowIfInvalid(activationState);
         ThrowIfUnknownStateType(activationState);
-        await PerformTransition(activationState);
+        await PerformTransition(activationState, _entryGeneration);
     }
 
     /// <inheritdoc/>
@@ -102,13 +103,22 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
         where TState : IState<TStoredState> => _currentState.CanTransitionTo<TState>(State);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A transition the current state refuses does nothing and completes without an error; it is not a failure. Call
+    /// <see cref="CanTransitionTo{TState}"/> first when the caller needs to branch on whether it is allowed.
+    /// A request admitted during an ongoing transition completes its task before it is executed. Queued targets
+    /// run in FIFO order. If no state has been entered since a target's request-time guard began, its admission decision stands.
+    /// Otherwise, it is checked against the state it would leave and silently skipped if refused. If the drain fails,
+    /// pending requests are discarded and the task owning the drain observes the failure.
+    /// </remarks>
     public async Task TransitionTo<TState>()
         where TState : IState<TStoredState>
     {
         ThrowIfUnknownStateType(typeof(TState));
+        var admissionGeneration = _entryGeneration;
         if (await CanTransitionTo<TState>())
         {
-            await PerformTransition(typeof(TState));
+            await PerformTransition(typeof(TState), admissionGeneration);
         }
     }
 
@@ -154,8 +164,11 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
     /// <returns>Task representing the asynchronous operation.</returns>
     /// <remarks>
     /// This behaves exactly as <see cref="TransitionTo{TState}"/>: the transition only happens when the current state
-    /// allows it, and a transition requested while entering a state is performed once the ongoing transition completes.
-    /// Use it when the target state is only known as a <see cref="Type"/>.
+    /// allows it, and a refused transition does nothing and completes without an error. Call
+    /// <see cref="CanTransitionTo(Type)"/> first when the caller needs to branch on it. Requests admitted while entering a state complete their tasks on admission. Queued targets run in
+    /// FIFO order. If no state has been entered since a target's request-time guard began, its admission decision stands. Otherwise,
+    /// it is checked against the state it would leave and silently skipped if refused. A failed drain discards pending
+    /// requests and reports the failure to its owner. Use it when the target state is only known as a <see cref="Type"/>.
     /// </remarks>
     /// <exception cref="InvalidTypeForState">Thrown when <paramref name="stateType"/> is not a state for this state machine.</exception>
     /// <exception cref="UnknownStateTypeInStateMachine">Thrown when <paramref name="stateType"/> is not one of the states of this state machine.</exception>
@@ -163,9 +176,10 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
     {
         ThrowIfNotAStateType(stateType);
         ThrowIfUnknownStateType(stateType);
+        var admissionGeneration = _entryGeneration;
         if (await CanTransitionTo(stateType))
         {
-            await PerformTransition(stateType);
+            await PerformTransition(stateType, admissionGeneration);
         }
     }
 
@@ -219,7 +233,7 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
     /// <returns>Awaitable task.</returns>
     protected virtual Task OnAfterLeavingState(IState<TStoredState> state) => Task.CompletedTask;
 
-    async Task PerformTransition(Type stateType)
+    async Task PerformTransition(Type stateType, long admissionGeneration)
     {
         _logger?.TransitioningTo(stateType);
         if (_isTransitioning)
@@ -228,65 +242,61 @@ public abstract class StateMachine<TStoredState> : Grain<TStoredState>, IStateMa
             {
                 throw new TransitioningDuringOnLeaveIsNotSupported(_currentState.GetType(), stateType, GetType());
             }
-            _scheduledTransition = stateType;
+            _scheduledTransitions.Enqueue((stateType, admissionGeneration));
             return;
         }
 
-        var stateTypeBeforeTransition = _currentState.GetType();
-        var storedStateBeforeTransition = State;
-
         _isTransitioning = true;
-        _isLeaving = true;
-
-        // OnLeave and OnEnter run arbitrary state code that does I/O, so either can throw. The in-transition flags
-        // must come down regardless: a stuck _isTransitioning turns every later transition into a scheduled one that
-        // never runs, and a stuck _isLeaving makes every later transition throw
-        // TransitioningDuringOnLeaveIsNotSupported - either way the machine can never change state again, and being
-        // kept alive it is never reactivated out of it. A transition scheduled from inside a transition that then
-        // failed is dropped with it; it was an intent of a transition that never completed, and re-running it later
-        // on the back of an unrelated one would be arbitrary.
         try
         {
-            await OnBeforeLeavingState(_currentState);
-            State = await _currentState.OnLeave(State);
-            await OnAfterLeavingState(_currentState);
-            _isLeaving = false;
-
-            _currentState = _states[stateType];
-
-            await OnBeforeEnteringState(_currentState);
-            State = await _currentState.OnEnter(State);
-            await OnAfterEnteringState(_currentState);
-
-            if (State is StateMachineState stateMachineState)
+            await PerformSingleTransition(stateType);
+            while (_scheduledTransitions.TryDequeue(out var scheduledState))
             {
-                stateMachineState.CurrentState = _currentState.GetType().FullName!;
+                if (_entryGeneration == scheduledState.AdmissionGeneration || await CanTransitionTo(scheduledState.TargetState))
+                {
+                    _logger?.TransitioningTo(scheduledState.TargetState);
+                    await PerformSingleTransition(scheduledState.TargetState);
+                }
             }
-
-            // A transition that neither moved to a different state nor produced a new stored-state instance leaves the
-            // persisted document identical, so the write is skipped. The current-state type change captures the
-            // StateMachineState.CurrentState update above; a new State reference captures every OnLeave/OnEnter result.
-            if (_currentState.GetType() != stateTypeBeforeTransition || !ReferenceEquals(State, storedStateBeforeTransition))
-            {
-                await WriteStateAsync();
-            }
-        }
-        catch
-        {
-            _scheduledTransition = null;
-            throw;
         }
         finally
         {
+            // A failed drain aborts all remaining in-memory admissions. Never replay them on an unrelated request.
+            _scheduledTransitions.Clear();
             _isLeaving = false;
             _isTransitioning = false;
         }
+    }
 
-        if (_scheduledTransition is not null)
+    async Task PerformSingleTransition(Type stateType)
+    {
+        var stateTypeBeforeTransition = _currentState.GetType();
+        var storedStateBeforeTransition = State;
+
+        _isLeaving = true;
+        await OnBeforeLeavingState(_currentState);
+        State = await _currentState.OnLeave(State);
+        await OnAfterLeavingState(_currentState);
+        _isLeaving = false;
+
+        _currentState = _states[stateType];
+        _entryGeneration++;
+
+        await OnBeforeEnteringState(_currentState);
+        State = await _currentState.OnEnter(State);
+        await OnAfterEnteringState(_currentState);
+
+        if (State is StateMachineState stateMachineState)
         {
-            var stateToTransitionTo = _scheduledTransition;
-            _scheduledTransition = null;
-            await PerformTransition(stateToTransitionTo);
+            stateMachineState.CurrentState = _currentState.GetType().FullName!;
+        }
+
+        // A transition that neither moved to a different state nor produced a new stored-state instance leaves the
+        // persisted document identical, so the write is skipped. The current-state type change captures the
+        // StateMachineState.CurrentState update above; a new State reference captures every OnLeave/OnEnter result.
+        if (_currentState.GetType() != stateTypeBeforeTransition || !ReferenceEquals(State, storedStateBeforeTransition))
+        {
+            await WriteStateAsync();
         }
     }
 

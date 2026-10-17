@@ -81,8 +81,10 @@ grain methods do not check a status; the current state decides.
 
 `TransitionTo<TState>()` asks the current state whether it may move to `TState` by calling its
 `CanTransitionTo<TState>()`. The default implementation answers from `AllowedTransitions`; override
-`CanTransitionTo<TTargetState>` when the answer depends on the stored state. When the answer is no, nothing happens.
-When it is yes, the transition runs in this order:
+`CanTransitionTo<TTargetState>` when the answer depends on the stored state. When the answer is no, nothing happens:
+the task completes without an error or a transition. Use `CanTransitionTo<TState>()` when you need to branch on
+whether the current state allows a target. When the answer is yes and no transition is in progress, the transition
+runs in this order:
 
 ```mermaid
 sequenceDiagram
@@ -111,13 +113,41 @@ virtual on the state machine, for behavior that applies to every state.
 | --- | --- |
 | The target state is not one of the states the machine created | `UnknownStateTypeInStateMachine` is thrown |
 | The current state does not allow the target | Nothing happens - no leave, no enter, no write |
-| A state asks for a transition while it is being entered | The transition is scheduled and runs once the current transition completes |
+| A transition is admitted while entering a state, in its entering hooks, or during persistence | The task completes on admission; the target joins a FIFO queue and is checked again if another state entry occurs before execution |
 | A state asks for a transition while it is being left | `TransitioningDuringOnLeaveIsNotSupported` is thrown |
-| `OnLeave` or `OnEnter` throws | The exception reaches the caller, a transition scheduled during it is dropped, and the machine accepts transitions again |
+| A lifecycle hook, persistence, or a guard checked during the drain throws | The exception reaches the caller owning the drain, all pending targets are discarded, and the machine accepts fresh requests. During activation the drain owner is `OnActivateAsync`, so the activation fails |
 | The machine stays in the same state and the stored state is the same instance | The write is skipped |
 
 The last rule matters when a state re-enters itself: mutating the stored state in place leaves the same instance, so
 the change is not written. Return a new instance from `OnEnter` when a self-transition must persist.
+
+### Deferred admission is not completion
+
+If `Holding.OnEnter` awaits I/O and two requests for `A` and then `B` are admitted, the machine finishes entering
+`Holding`, then considers `A`, then `B`. Guards run at request time, before admission. If no state has been entered
+since the target's request-time guard began, the admission decision stands; otherwise the target is checked against the state it
+would leave and silently skipped if refused. Self-entry and returning to a previously entered state both count as
+new entries. If `Holding` allows `A` and `A` allows `B`, both run in order. If `A` refuses `B`, the machine stays in
+`A` and silently skips `B`. This preserves request-scoped permission when no state entry has intervened, without
+bypassing the transition rules of an intermediate or re-entered state. Because a queued target's guard may run twice,
+keep guards free of side effects. If a guard itself awaits, FIFO order follows when requests are admitted, not
+necessarily when their calls began. Nested requests append behind already admitted targets.
+
+The caller that starts an idle transition waits for that transition and its queued drain. A request admitted while
+that transition is entering completes its task on admission, before its target runs. This lets `OnEnter` await a
+nested `TransitionTo` without deadlocking; it also means awaiting an interleaved request does not prove that its
+target has been entered. Refusal at request time completes silently without queuing. A queued target refused during
+the drain is silently skipped, and the drain continues with the next target.
+
+Deferred targets are in-memory intents, not durable or exactly-once work. If enter, leave, an enclosing hook or
+persistence fails, the drain stops and discards every pending target. The caller owning the drain observes the
+exception; callers whose admission tasks already completed do not receive a later failure. A fresh request uses the
+current in-memory state. The machine does not roll back completed hooks, stored-state assignments or external effects.
+
+There is no stored-state copy merge guarantee. If another grain call replaces or changes the stored state while
+`OnEnter` awaits, the value that `OnEnter` later returns becomes the stored state and can overwrite those changes.
+The machine cannot merge arbitrary `TStoredState` values; coordinate such updates in your grain or return the latest
+state from the hook.
 
 ## Persisting and restoring the current state
 

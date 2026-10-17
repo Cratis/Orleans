@@ -19,6 +19,7 @@ public class SuppliedStorageForTesting
     public StateMachineStateForTesting StateToRead { get; set; } = new();
     public int Reads { get; private set; }
     public int Writes { get; private set; }
+    public bool ThrowOnWrite { get; set; }
     public IStorage<StateMachineStateForTesting> Storage { get; }
 
     sealed class StorageForTesting(SuppliedStorageForTesting owner) : IStorage<StateMachineStateForTesting>
@@ -39,6 +40,11 @@ public class SuppliedStorageForTesting
         public Task WriteStateAsync()
         {
             owner.Writes++;
+            if (owner.ThrowOnWrite)
+            {
+                throw new SimulatedStateTransitionError();
+            }
+
             return Task.CompletedTask;
         }
     }
