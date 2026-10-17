@@ -74,8 +74,23 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// Stop a job if running.
     /// </summary>
     /// <param name="jobId"><see cref="JobId"/> to stop.</param>
-    /// <returns>Awaitable task.</returns>
-    Task Stop(JobId jobId);
+    /// <returns>Success when the job accepted the stop, otherwise the reason it did not.</returns>
+    /// <remarks>
+    /// A job that cannot be found, or whose type is unknown to this release, answers <see cref="StopJobError.Unknown"/>.
+    /// A stop that could not be made durable answers <see cref="StopJobError.CouldNotPersistStop"/> and leaves the
+    /// job as it was.
+    /// </remarks>
+    Task<Result<StopJobError>> Stop(JobId jobId);
+
+    /// <summary>
+    /// Run the failed steps of a job that completed with failures again.
+    /// </summary>
+    /// <param name="jobId"><see cref="JobId"/> of the job.</param>
+    /// <returns>The number of steps run again, or the reason the job did not run any.</returns>
+    /// <remarks>
+    /// Opt-in per job type. Resuming a job that completed with failures still does nothing.
+    /// </remarks>
+    Task<Result<int, RetryFailedStepsError>> RetryFailedSteps(JobId jobId);
 
     /// <summary>
     /// Delete an existing job.

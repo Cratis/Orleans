@@ -26,6 +26,9 @@ public static partial class JobsManagerLogMessages
     [LoggerMessage(LogLevel.Debug, "Stopping job {JobId}")]
     public static partial void StoppingJob(this ILogger<JobsManager> logger, JobId jobId);
 
+    [LoggerMessage(LogLevel.Debug, "Retrying failed steps of job {JobId}")]
+    public static partial void RetryingFailedSteps(this ILogger<JobsManager> logger, JobId jobId);
+
     [LoggerMessage(LogLevel.Debug, "Deleting job {JobId}")]
     public static partial void DeletingJob(this ILogger<JobsManager> logger, JobId jobId);
 

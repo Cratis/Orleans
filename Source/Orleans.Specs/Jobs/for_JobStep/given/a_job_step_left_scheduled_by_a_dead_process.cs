@@ -39,7 +39,7 @@ public class a_job_step_left_scheduled_by_a_dead_process : Specification
 
         _storage = new(_persistedState);
         _silo.AddPersistentStateStorage(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps, _storage);
-        _silo.AddService(Options.Create(new JobsOptions { StepCheckpointBatchInterval = 1, StepStopTimeout = StopTimeout }));
+        _silo.AddService(Options.Create(CreateOptions()));
         _silo.AddService(CreateThrottle());
         if (RegisterStateCopier)
         {
@@ -50,6 +50,12 @@ public class a_job_step_left_scheduled_by_a_dead_process : Specification
         var key = new JobStepKey(_jobId, "event-store", "namespace");
         _jobStep = await _silo.CreateGrainAsync<SomeJobStepGrain>(_jobStepId, keyExtension: key);
     }
+
+    /// <summary>
+    /// Creates the options the step runs with in this specification.
+    /// </summary>
+    /// <returns>The options.</returns>
+    protected virtual JobsOptions CreateOptions() => new() { StepCheckpointBatchInterval = 1, StepStopTimeout = StopTimeout };
 
     /// <summary>
     /// Gets a value indicating whether the silo can copy the step's state, as every real silo can.

@@ -599,6 +599,64 @@ race the step's final status write, and successful completion deletes the stored
 values on the job instead.
 :::
 
+## Bounded, self-healing jobs
+
+A job with thousands of steps should not activate all of them at once, and a job should not stay `Running`
+because one report from a step never arrived. These behaviors are additive: with the default options a job
+behaves as it always did, except that a running job is watched.
+
+### Keep a window of active steps
+
+Set `JobsOptions.MaxActiveStepsPerJob`, or override `Job.MaxActiveSteps`, to start that many steps and start the
+next one each time a step reaches an outcome. Steps that have not started stay prepared in storage. A job that
+resumes after a restart rebuilds its window from the steps in storage, starting the steps that were running
+first. Stopping a job counts the steps that never started as stopped; they start again when the job resumes.
+
+### A step persists its outcome, then delivers it
+
+A step writes its terminal status first and then delivers it to the job, retrying with a growing delay until the
+job acknowledges (`StepDeliveryMaxAttempts`, `StepDeliveryRetryDelay`, `MaxStepDeliveryRetryDelay`). A delivery
+that never succeeds does not mark the step failed: the persisted outcome stays, and the job's watchdog accounts
+for it. The job accepts an outcome once per step and attempt, so a delivery repeated after a lost
+acknowledgement is not counted twice.
+
+### The watchdog
+
+A running job counts its steps by status in storage every `JobWatchdogInterval` (and soon after it activates
+while persisted as `Running`). When every step is done - `Failed` and `CompletedWithFailure` count as failed, a
+step that succeeded is no longer in storage - it recounts its progress from storage and completes. The counters a
+job keeps while steps report to it are a cache; storage is the record. `IJobStepStorage.CountByStatus` is a
+default interface member, so a third-party storage keeps compiling and can override it with a cheaper query.
+
+### Attempts and retries
+
+`JobsOptions.MaxStepAttempts` (default 1) lets a failed step run again. The step records the failed attempt, the
+job decides whether to retry through `Job.ShouldRetryStep(stepId, result, attempt)` and schedules the next
+attempt after an exponential backoff (`StepRetryBackoff`, `MaxStepRetryBackoff`, or override
+`Job.GetStepRetryDelay`). A retried failure is not counted as a failure until its attempts run out. The pending
+retry schedule lives in the job's memory: after the job is reactivated, a failed attempt counts as final.
+
+### Run the failed steps again
+
+Resuming a job that completed with failures does nothing. A job type that wants its failed steps run again
+overrides `Job.CanRetryFailedSteps` to return true, and callers use `IJobsManager.RetryFailedSteps(jobId)`. The
+job runs each step that completed with failure as its next attempt and goes back to `Running`. Jobs with stages
+do not support it.
+
+### Leases
+
+With `JobsOptions.StepLeaseTimeout` set, a running step records a lease - its silo, activation and last
+heartbeat - and renews it with every state write and on the checkpoint flush timer. The watchdog restarts a step
+only when its owner silo is no longer part of the cluster **and** its lease has expired. A step without a lease,
+written by a release that did not know them, is left alone for one lease period after its last change and then
+started again, which is harmless for a step that is still running. Override `Job.GetActiveSilos` to change how
+the cluster membership is read.
+
+### Stopping reports what happened
+
+`Job.Stop` answers `StopJobError.CouldNotPersistStop` when the stop could not be written, and leaves the job as it
+was. `IJobsManager.Stop` returns that result instead of discarding it.
+
 ## Rehydration
 
 A crashed silo leaves durable `Running` state behind, not a live performer. `AddCratisOrleans` installs a recovery

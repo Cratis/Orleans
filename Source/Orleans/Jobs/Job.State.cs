@@ -130,7 +130,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             var status = changes[position - 1].Status;
             if (status is JobStatus.PreparingJob ||
-                (status is JobStatus.Running && position > 1 && changes[position - 2].Status is JobStatus.Stopped or JobStatus.Removing))
+                (status is JobStatus.Running && position > 1 && changes[position - 2].Status is JobStatus.Stopped or JobStatus.Removing or JobStatus.CompletedWithFailures))
             {
                 return position;
             }
@@ -155,5 +155,15 @@ public abstract partial class Job<TRequest, TJobState>
             ExceptionMessages = exception?.GetAllMessages() ?? []
         });
         State.Status = status;
+
+        // Only a running job is watched; the watchdog checks the status again whenever it ticks.
+        if (status is JobStatus.Running)
+        {
+            EnsureWatchdog(WatchdogInterval);
+        }
+        else
+        {
+            DisposeWatchdog();
+        }
     }
 }

@@ -73,6 +73,11 @@ public class SomeJobStepGrain(
     public TaskCompletionSource? HoldCancelledResult { get; set; }
 
     /// <summary>
+    /// Gets or sets the failure thrown synchronously before deriving the cancelled result.
+    /// </summary>
+    public Exception? CancelledResultFailure { get; set; }
+
+    /// <summary>
     /// Gets the signal that the step was asked for its cancelled result.
     /// </summary>
     public TaskCompletionSource CancelledResultRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -231,9 +236,18 @@ public class SomeJobStepGrain(
     }
 
     /// <inheritdoc/>
-    protected override async ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState)
+    protected override ValueTask<object?> CreateCancelledResultFromCurrentState(JobStepState currentState)
     {
         CancelledResultRequested.TrySetResult();
+        if (CancelledResultFailure is { } failure)
+        {
+            throw failure;
+        }
+        return ReadCancelledResult();
+    }
+
+    async ValueTask<object?> ReadCancelledResult()
+    {
         if (HoldCancelledResult is { } hold)
         {
             await hold.Task;

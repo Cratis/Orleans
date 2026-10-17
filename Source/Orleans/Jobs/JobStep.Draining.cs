@@ -425,8 +425,10 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             return;
         }
 
-        // The delivery inherits the context of whatever started it, so it always reports the run's own generation.
+        // The delivery inherits the context of whatever started it, so it always reports the run's own generation
+        // and the attempt it belongs to.
         using var generation = JobExecutionGeneration.Report(run.Generation);
+        using var attempt = JobStepAttempt.Report(State.Attempt);
         try
         {
             // The job that drained the step took the outcome from the drain; reporting it again changes nothing.
@@ -438,7 +440,15 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
             if (outcome.TryGetError(out var error))
             {
-                _ = await ReportFailureToJob(run, error);
+                if (error.Cancelled)
+                {
+                    // A stop is reported before it is persisted: the step is not done, so it must not look done.
+                    _ = await ReportFailureToJob(run, error);
+                }
+                else
+                {
+                    await DeliverFailure(run, error);
+                }
             }
             else
             {
@@ -447,12 +457,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
         catch (Exception ex)
         {
+            // What was persisted stays as it is: a delivery that fails is not a failure of the step.
             logger.FailedUnexpectedly(ex);
-            if (outcome.TryGetError(out _))
-            {
-                // A failure that cannot reach the job must not leave the step looking live.
-                _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Failed, ex.GetAllMessages(), ex.StackTrace);
-            }
         }
         finally
         {
@@ -479,11 +485,60 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
 
         // Only a started run can succeed, and Start supplied its parent before dispatching the work.
-        if ((await _job!.OnStepSucceeded(JobStepId, outcome)).TryGetError(out var errorReportingSuccess))
+        await DeliverUntilAcknowledged(run, () => _job!.OnStepSucceeded(JobStepId, outcome));
+    }
+
+    async Task DeliverFailure(JobStepRun run, PerformJobStepError error)
+    {
+        // A failure is persisted before it is reported, so a job that never hears of it still finds it in storage.
+        var persisted = await WriteStatusChangeUnderGate(run, JobStepStatus.CompletedWithFailure, error.ErrorMessages, error.ExceptionStackTrace);
+        if (persisted.TryGetError(out _) && !IsCurrent(run))
         {
-            logger.FailedReportJobStepSuccess(errorReportingSuccess);
-            _ = await WriteStatusChangeUnderGate(run, JobStepStatus.Failed, ["Error reporting job step succeeded"]);
+            return;
         }
+
+        // Start supplied the parent before dispatching the work that recorded this failure.
+        await DeliverUntilAcknowledged(run, () => _job!.OnStepFailed(JobStepId, JobStepResult.Failed(error)));
+    }
+
+    async Task DeliverUntilAcknowledged(JobStepRun run, Func<Task<Result<JobError>>> deliver)
+    {
+        var maxAttempts = Math.Max(1, _options.StepDeliveryMaxAttempts);
+        var delay = _options.StepDeliveryRetryDelay;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                var reported = await deliver();
+                if (!reported.TryGetError(out var jobError))
+                {
+                    return;
+                }
+                logger.FailedReportJobStepOutcome(attempt, jobError);
+            }
+            catch (Exception ex)
+            {
+                logger.FailedDeliveringJobStepOutcome(ex, attempt);
+            }
+
+            if (attempt == maxAttempts || !IsCurrent(run))
+            {
+                break;
+            }
+
+            if (delay > TimeSpan.Zero)
+            {
+                await Task.Delay(delay);
+            }
+            delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, Math.Max(_options.MaxStepDeliveryRetryDelay.Ticks, delay.Ticks)));
+            if (!IsCurrent(run))
+            {
+                break;
+            }
+        }
+
+        // The outcome is persisted; the job's watchdog accounts for a step it was never told about.
+        logger.GaveUpDeliveringJobStepOutcome(maxAttempts);
     }
 
     async Task<Result<JobStepError>> ReportFailureToJob(JobStepRun? run, PerformJobStepError error)

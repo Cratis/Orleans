@@ -22,4 +22,9 @@ public enum StopJobError
     /// Job is not running.
     /// </summary>
     JobIsNotRunning = 3,
+
+    /// <summary>
+    /// The stop could not be made durable, so the job was left as it was.
+    /// </summary>
+    CouldNotPersistStop = 4,
 }

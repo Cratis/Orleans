@@ -17,6 +17,11 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public int BeforeResumingCount;
     public HashSet<JobStepStage> StagesContinuingOnFailure = [];
 
+    public int? Window;
+    public Func<JobStepId, JobStepResult, int, bool>? RetryWhen;
+    public bool RetryFailedStepsAllowed;
+    public ISet<string>? ActiveSiloAddresses;
+
     public Type GrainType => typeof(ISomeJob);
 
     public SomeJobState CurrentState => State;
@@ -58,6 +63,17 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
             ? Task.FromException(new Exception())
             : Task.CompletedTask;
     }
+
+    public TimeSpan DelayAfter(int failedAttempt) => GetStepRetryDelay(failedAttempt);
+
+    protected override int? MaxActiveSteps => Window ?? base.MaxActiveSteps;
+
+    protected override bool ShouldRetryStep(JobStepId stepId, JobStepResult result, int attempt) =>
+        RetryWhen?.Invoke(stepId, result, attempt) ?? base.ShouldRetryStep(stepId, result, attempt);
+
+    protected override bool CanRetryFailedSteps => RetryFailedStepsAllowed;
+
+    protected override Task<ISet<string>?> GetActiveSilos() => Task.FromResult(ActiveSiloAddresses);
 
     protected override Task<bool> CanResume() => Task.FromResult(ShouldBeResumable);
 

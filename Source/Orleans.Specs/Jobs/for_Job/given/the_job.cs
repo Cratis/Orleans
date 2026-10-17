@@ -23,6 +23,7 @@ public class the_job : Specification
     protected IJobsStorage _jobsStorage;
     protected IJobStorage _jobStorage;
     protected IJobStepStorage _jobStepStorage;
+    protected StepStorageWithCounts _countingStepStorage;
     protected IJobTypes _jobTypes;
 
     protected List<JobStepState> _storedJobStepStates;
@@ -32,6 +33,18 @@ public class the_job : Specification
     protected int Writes => _silo.StorageStats<SomeJob, SomeJobState>().Writes;
 
     protected void Admit(params SomeAdmission[] admissions) => _silo.AddService<IEnumerable<IJobAdmission>>(admissions);
+
+    /// <summary>
+    /// Makes storage answer the given counts of steps by status.
+    /// </summary>
+    /// <param name="counts">The counts, as storage has them: a step that succeeded is no longer there.</param>
+    protected void CountStepsInStorage(params (JobStepStatus Status, int Count)[] counts) =>
+        _countingStepStorage.Counts = counts.ToDictionary(_ => _.Status, _ => _.Count);
+
+    /// <summary>
+    /// Makes storage fail counting the steps.
+    /// </summary>
+    protected void StorageCannotCountSteps() => _countingStepStorage.Counts = null;
 
     protected int StoredJobStepsWith(JobStepStatus status) => _storedJobStepStates.Count(state => state.Status == status);
 
@@ -117,7 +130,8 @@ public class the_job : Specification
         _jobStorage = Substitute.For<IJobStorage>();
         _jobStepStorage = Substitute.For<IJobStepStorage>();
         _jobTypes = Substitute.For<IJobTypes>();
-        _jobsStorage.GetFor(Arg.Any<string>(), Arg.Any<string>()).Returns(new JobsStorage(_jobStorage, _jobStepStorage));
+        _countingStepStorage = new(_jobStepStorage);
+        _jobsStorage.GetFor(Arg.Any<string>(), Arg.Any<string>()).Returns(new JobsStorage(_jobStorage, _countingStepStorage));
 
         // Filtered by status the way the real storage filters, so a step that already completed is not handed back as
         // one still left to run.

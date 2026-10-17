@@ -50,6 +50,9 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     IJob? _job;
     JobStepCheckpointDebounce _checkpoints = new(1);
     TimeSpan _stopTimeout = new JobsOptions().StepStopTimeout;
+    JobsOptions _options = new();
+    Guid _activationId;
+    string _owner = string.Empty;
 
     /// <summary>
     /// Gets the delivery of the current run's outcome, including a stop's removal of the step, which no stop,
@@ -101,6 +104,14 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// </summary>
     protected JobStepName Name { get; private set; } = null!;
 
+    bool LeasesAreOn => _options.StepLeaseTimeout > TimeSpan.Zero && _options.StepLeaseTimeout != Timeout.InfiniteTimeSpan;
+
+    bool LeaseNeedsRenewal =>
+        LeasesAreOn &&
+        State.Status is JobStepStatus.Running &&
+        _run is { IsSettled: false } &&
+        (State.Lease is null || DateTimeOffset.UtcNow - State.Lease.LastHeartbeat >= _options.StepLeaseTimeout / 3);
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -128,12 +139,15 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
         var jobs = ServiceProvider.GetService<IOptions<JobsOptions>>()?.Value;
         _checkpoints = new(jobs?.StepCheckpointBatchInterval ?? 1);
         _stopTimeout = jobs?.StepStopTimeout ?? _stopTimeout;
+        _options = jobs ?? _options;
+        _activationId = Guid.NewGuid();
+        _owner = ServiceProvider.GetService<ILocalSiloDetails>()?.SiloAddress?.ToString() ?? string.Empty;
 
         var flushInterval = jobs?.StepCheckpointFlushInterval ?? TimeSpan.Zero;
 
         // A step that checkpoints after every batch never leaves one pending, so the timer would only ever find
-        // nothing to do.
-        if (_checkpoints.BatchInterval > 1 && flushInterval > TimeSpan.Zero && !CheckpointAfterEveryBatch)
+        // nothing to do - unless it also renews the lease, which a step that checkpoints rarely would otherwise not.
+        if (flushInterval > TimeSpan.Zero && ((_checkpoints.BatchInterval > 1 && !CheckpointAfterEveryBatch) || LeasesAreOn))
         {
             this.RegisterGrainTimer(
                 _ => UnderGate(FlushDebouncedCheckpoint),
@@ -257,6 +271,43 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// <inheritdoc/>
     public Task<TState> GetState() => Task.FromResult(State);
 
+    /// <inheritdoc/>
+    public async Task<Result<StartJobStepError>> Retry(GrainId jobGrainId, int attempt)
+    {
+        using var scope = logger.BeginJobStepScope(State);
+        var generation = JobExecutionGeneration.Take();
+
+        // The outcome of the earlier attempt is still being delivered; the job asks again.
+        if (_run is { IsSettled: false })
+        {
+            return StartJobStepError.AlreadyStarted;
+        }
+
+        // An attempt the step is already on - or past - is not run again; asking is the same as starting it.
+        if (State.Status is not JobStepStatus.CompletedWithFailure || attempt <= State.Attempt)
+        {
+            return await StartRun(jobGrainId, generation);
+        }
+
+        var previousStatus = State.Status;
+        var previousAttempt = State.Attempt;
+        var previousLease = State.Lease;
+        State.Status = JobStepStatus.Unknown;
+        State.Attempt = attempt;
+        State.Lease = null;
+        logger.RetryingAttempt(attempt);
+
+        var started = await StartRun(jobGrainId, generation);
+        if (started.TryGetError(out var error) && error is not StartJobStepError.AlreadyStarted)
+        {
+            // Nothing of the attempt reached storage; the step is as it was after its failure.
+            State.Status = previousStatus;
+            State.Attempt = previousAttempt;
+            State.Lease = previousLease;
+        }
+        return started;
+    }
+
     /// <summary>
     /// Begins a run for a specification: started and running, with no work launched and no outcome delivery.
     /// </summary>
@@ -375,6 +426,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     {
         try
         {
+            RenewLease();
             await state.WriteStateAsync();
             _checkpoints.Persisted();
             return Catch.Success();
@@ -414,7 +466,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// otherwise hold them unpersisted for as long as it stays activated.
     /// </remarks>
     protected Task<Catch> FlushDebouncedCheckpoint() =>
-        _checkpoints.HasPendingCheckpoint ? WriteStateAsync() : Task.FromResult(Catch.Success());
+        _checkpoints.HasPendingCheckpoint || LeaseNeedsRenewal ? WriteStateAsync() : Task.FromResult(Catch.Success());
 
     /// <summary>
     /// Create <typeparamref name="TResult"/> result when the job step is stopped without having the job step task running.
@@ -425,6 +477,25 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// </remarks>
     /// <returns>The result.</returns>
     protected abstract ValueTask<TResult?> CreateCancelledResultFromCurrentState(TState currentState);
+
+    void RenewLease()
+    {
+        if (!LeasesAreOn)
+        {
+            return;
+        }
+
+        // The lease is the claim of a step that runs; any other status gives it up.
+        State.Lease = State.Status is JobStepStatus.Scheduled or JobStepStatus.Running
+            ? new JobStepLease
+            {
+                Owner = _owner,
+                ActivationId = _activationId,
+                LastHeartbeat = DateTimeOffset.UtcNow,
+                Attempt = State.Attempt
+            }
+            : null;
+    }
 
     async Task<Result<StartJobStepError>> StartRun(GrainId jobGrainId, long? generation)
     {
