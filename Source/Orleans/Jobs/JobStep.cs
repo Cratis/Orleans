@@ -47,7 +47,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     IGrainTimer? _pendingStartTimer;
     long _lastRunId;
     bool _deactivated;
-    IJob _job = new NullJob();
+    IJob? _job;
     JobStepCheckpointDebounce _checkpoints = new(1);
     TimeSpan _stopTimeout = new JobsOptions().StepStopTimeout;
 
@@ -428,6 +428,11 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
 
     async Task<Result<StartJobStepError>> StartRun(GrainId jobGrainId, long? generation)
     {
+        if (_deactivated)
+        {
+            return StartJobStepError.Unknown;
+        }
+
         // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
         // on the parent. A run whose work, callbacks or delivery have not settled is still live.
         if (_run is { IsSettled: false })
