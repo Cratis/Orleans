@@ -184,6 +184,15 @@ public static partial class JobLogMessages
 
     [LoggerMessage(LogLevel.Warning, "Job failed continuing a pending drain after activation")]
     internal static partial void FailedCompletingPendingDrain(this ILogger<IJob> logger, Exception ex);
+
+    [LoggerMessage(LogLevel.Information, "Job was not admitted at {CheckPoint}")]
+    internal static partial void NotAdmitted(this ILogger<IJob> logger, string checkPoint);
+
+    [LoggerMessage(LogLevel.Warning, "Job admission failed at {CheckPoint}; it is neither admitted nor refused")]
+    internal static partial void AdmissionFailed(this ILogger<IJob> logger, Exception ex, string checkPoint);
+
+    [LoggerMessage(LogLevel.Warning, "Job has no request to ask admission about at {CheckPoint}; admitting it")]
+    internal static partial void AdmittingJobWithoutRequest(this ILogger<IJob> logger, string checkPoint);
 }
 
 public static class JobScopes
