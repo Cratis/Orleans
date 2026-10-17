@@ -22,6 +22,12 @@ internal static partial class JobsRecoveryLogging
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to recover jobs for {Key}")]
     internal static partial void ManagerRecoveryFailed(this ILogger<JobsRecovery> logger, Exception exception, JobsManagerKey key);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Retrying jobs recovery for {Providers} providers and {Keys} manager keys: attempt {Attempt} after {Delay}")]
+    internal static partial void RetryingRecovery(this ILogger<JobsRecovery> logger, int providers, int keys, int attempt, TimeSpan delay);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "All pending jobs recovery retries have been resolved")]
+    internal static partial void RecoveryRetriesResolved(this ILogger<JobsRecovery> logger);
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Jobs recovery participant failed")]
     internal static partial void RecoveryFailed(this ILogger<JobsRecovery> logger, Exception exception);
 }

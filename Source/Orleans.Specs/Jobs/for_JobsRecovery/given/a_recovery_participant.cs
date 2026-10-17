@@ -19,6 +19,8 @@ public class a_recovery_participant : Specification
     protected IJobsManager _second;
     protected JobsRecovery _recovery;
     protected ILifecycleObserver _observer;
+    protected IJobsManagerKeys _keys;
+    protected readonly ControlledTimeProvider _timeProvider = new();
     protected readonly TaskCompletionSource _startup = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly Channel<(ClusterMembershipSnapshot Snapshot, TaskCompletionSource Processed)> _updates = Channel.CreateUnbounded<(ClusterMembershipSnapshot, TaskCompletionSource)>();
 
@@ -39,10 +41,10 @@ public class a_recovery_participant : Specification
             _startup.TrySetResult();
             return Task.CompletedTask;
         });
-        var keys = Substitute.For<IJobsManagerKeys>();
-        keys.GetKeys(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IEnumerable<JobsManagerKey>>(
+        _keys = Substitute.For<IJobsManagerKeys>();
+        _keys.GetKeys(Arg.Any<CancellationToken>()).Returns(Task.FromResult<IEnumerable<JobsManagerKey>>(
             [new("scope", "first"), new("scope", "first"), new("scope", "second")]));
-        _recovery = new(membership, _local, CreateProviders(keys), factory, NullLogger<JobsRecovery>.Instance);
+        _recovery = new(membership, _local, CreateProviders(_keys), factory, NullLogger<JobsRecovery>.Instance, _timeProvider);
         var lifecycle = Substitute.For<ISiloLifecycle>();
         lifecycle.Subscribe(Arg.Any<string>(), Arg.Any<int>(), Arg.Do<ILifecycleObserver>(observer => _observer = observer));
         _recovery.Participate(lifecycle);

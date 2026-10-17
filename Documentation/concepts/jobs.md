@@ -665,7 +665,9 @@ cluster member Dead, the oldest Active silo requests another recovery pass when 
 The election uses the silo's generation and breaks ties by address. Without a host catalog, every surviving silo
 recovers the keys it remembers; electing one would miss keys known only to another survivor. Briefly disagreeing
 membership views can trigger duplicate passes; live steps are checked rather than started twice. Reminders play
-no part in recovery.
+no part in recovery. If a provider's `GetKeys` or a manager's `Rehydrate()` fails, recovery retries only the failed
+providers and manager keys after 1 second, doubling the delay up to 60 seconds until they succeed or the silo stops.
+Retries do not require another membership change and do not block membership-triggered recovery passes.
 
 Recovery preserves the original job id, scope, namespace and current stage. It starts only unfinished prepared
 steps; successful steps remain completed. An interrupted step may execute again, so protect external effects with
