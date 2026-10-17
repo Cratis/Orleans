@@ -13,8 +13,9 @@ namespace Cratis.Orleans.Jobs;
 /// </remarks>
 /// <param name="id">The identity of the run within its activation.</param>
 /// <param name="scheduler">The activation's <see cref="TaskScheduler"/>, captured when the run was created.</param>
+/// <param name="generation">The job's execution generation the run belongs to, or null when the job did not send one.</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "Work that outlived a timed-out stop may still observe the tokens; they hold no timers or wait handles to free.")]
-internal sealed class JobStepRun(long id, TaskScheduler scheduler)
+internal sealed class JobStepRun(long id, TaskScheduler scheduler, long? generation)
 {
     static readonly AsyncLocal<JobStepRun?> _current = new();
 
@@ -45,6 +46,12 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
     /// Gets the activation's <see cref="TaskScheduler"/>.
     /// </summary>
     public TaskScheduler Scheduler { get; } = scheduler;
+
+    /// <summary>
+    /// Gets the job's execution generation the run belongs to. Null means older than any generation: the run was
+    /// started by a job that does not send one.
+    /// </summary>
+    public long? Generation { get; } = generation;
 
     /// <summary>
     /// Gets the token the run's work is cancelled through.
@@ -107,6 +114,12 @@ internal sealed class JobStepRun(long id, TaskScheduler scheduler)
     /// Gets a value indicating whether the delivery of the outcome has been claimed.
     /// </summary>
     public bool DeliveryClaimed { get; private set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a drain persisted the outcome. Its delivery then writes nothing: the
+    /// job that drained the step has taken the outcome from the drain. Only changed under the step's gate.
+    /// </summary>
+    public bool OutcomePersisted { get; set; }
 
     /// <summary>
     /// Gets a task that completes when no admitted callback is running.

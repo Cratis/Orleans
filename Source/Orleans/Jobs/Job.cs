@@ -20,7 +20,7 @@ namespace Cratis.Orleans.Jobs;
 /// <typeparam name="TJobState">Type of state for the job.</typeparam>
 [StorageProvider(ProviderName = WellKnownGrainStorageProviders.Jobs)]
 [ResourceOptimizedPlacement]
-public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<TRequest>
+public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<TRequest>, IJobDrain
     where TRequest : class, IJobRequest
     where TJobState : JobState
 {
@@ -129,6 +129,10 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         {
             _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
         }
+        if (State.DrainPending)
+        {
+            CompleteDrainAfterActivation();
+        }
     }
 
     /// <inheritdoc/>
@@ -153,7 +157,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         State.Request = request;
         State.Details = GetJobDetails();
 
-        _ = await WriteStatusChanged(JobStatus.PreparingJob);
+        // The execution begins here; its steps carry this change's position, so none may start unless it is durable.
+        if (!await TryWriteStatusChanged(JobStatus.PreparingJob))
+        {
+            return StartJobError.Unknown;
+        }
 
         if (StartStepsInBackground)
         {
@@ -173,6 +181,13 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (State.Status is JobStatus.Failed)
             {
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
+
+            // A drain is not settled yet; nothing of the job may run until it is.
+            if (State.DrainPending)
+            {
+                _logger.NotResumingWhileDrainIsPending();
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
             }
 
             // A job can be left persisted as running with every one of its steps already accounted for: the
@@ -246,8 +261,19 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Resuming();
+            var stoppedSteps = State.Progress.StoppedSteps;
             State.Progress.StoppedSteps = 0;
-            _ = await WriteStatusChanged(JobStatus.Running);
+
+            // Resuming begins a new execution; its steps carry this change's position, so none may start unless it is durable.
+            if (!await TryWriteStatusChanged(JobStatus.Running))
+            {
+                State.Progress.StoppedSteps = stoppedSteps;
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
+
+            // Reports of the drained execution are told apart by their generation from here on.
+            // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
+            _accountedByDrain.Clear();
             await OnBeforeResumingJobSteps();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
         }
@@ -458,7 +484,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         if (_observers?.Count > 0)
         {
             // The job steps will eventually handle completion
-            await _observers.Notify(o => removing ? o.OnJobRemoved() : o.OnJobStopped());
+            await NotifySteps(removing);
             return;
         }
 
@@ -482,8 +508,15 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         else
         {
             // The job steps will eventually handle completion
-            await _observers.Notify(o => removing ? o.OnJobRemoved() : o.OnJobStopped());
+            await NotifySteps(removing);
         }
+    }
+
+    async Task NotifySteps(bool removing)
+    {
+        // A step tells a stop of the execution it runs in apart from a late stop of an earlier one by its generation.
+        using var generation = JobExecutionGeneration.Carry(ExecutionGeneration());
+        await _observers!.Notify(o => removing ? o.OnJobRemoved() : o.OnJobStopped());
     }
 
     async Task<bool> HandleResumeJobStepResult(JobStepId jobStepId, Result<StartJobStepError> result, IJobStep jobStepGrain)

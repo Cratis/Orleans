@@ -294,15 +294,121 @@ Some limits remain:
   before.
 - A report already sent to the job when the activation deactivates is not withdrawn, and the step does not
   persist anything for it afterwards. After a graceful shutdown the job may therefore have accepted a stop
-  or failure while the step's stored status is still `Running`; recovery runs the step again. A later release
-  makes this exact with execution tokens.
+  or failure while the step's stored status is still `Running`; recovery runs the step again. Execution
+  generations (below) do not change this, because the run that recovery starts belongs to the same execution.
+  A step that a [drain](#stop-a-job-and-wait-until-it-is-drained) accounted for is not affected: the drain
+  persists its outcome before it answers.
 - A step whose work still calls its own grain reference instead of `TryInvokeOnActivation` makes
   deactivation wait for that work, up to Orleans' deactivation timeout, because the held call cannot complete
   until the activation is gone. Move such calls to `TryInvokeOnActivation`.
-- A start is refused with `StartJobStepError.AlreadyStarted` while the previous run's work, callbacks or
-  outcome report are still in flight. A job resumed while a step's stop is still pending therefore treats
-  that step as live, and the step's late stop report then reaches the running job. A later release fences
-  this with execution tokens.
+
+### A resume does not mistake an earlier stop for its own
+
+A job can be resumed while one of its steps is still stopping. Before v1.20.0 the step refused the new start
+as already started, and its late stop report then reached the resumed job, which counted it - and could even
+complete on it.
+
+Since v1.20.0 a job tells its executions apart. An execution begins when the job starts and each time it
+resumes from a stop; recovering a job left running continues its execution. The job sends that generation
+with every step start and stop, and a step reports its outcome with the generation of the run that produced
+it. When a resume overtakes a pending stop:
+
+- the step accepts the new start but defers it until the stop has reported, then runs it in a turn of its own;
+- the job ignores the late stop report, keeps the step tracked, and starts it again in case the deferred start
+  was lost - starting is idempotent;
+- a late stop notification from the earlier execution does not stop the resumed run.
+
+A success or failure from an earlier execution still counts, once. While the job tracks the step, it counts as
+reported. A resume that reloads the steps from storage no longer tracks a step whose success was persisted -
+that removes the step's record - so for such a report the job recounts its progress from step storage, which
+has the outcome, and moves its stages on. It does not run `OnStepCompletedOrStopped` for that report.
+
+A step hosted by a silo older than v1.20.0 reports no generation, even when a newer job started it, and a run
+started by a job on an older silo has none to report. Their reports keep the earlier behavior.
+
+## Stop a job and wait until it is drained
+
+`Stop` is accepted as soon as the job has persisted it; its steps finish stopping afterwards. When you need to
+know that nothing of the job runs any more - before you read its steps' checkpoints, hand its work to someone
+else, or delete it - use `StopAndDrain`, available from v1.20.0. This excerpt adds it to the `TenantJobs`
+service shown [earlier](#starting-stopping-and-deleting-jobs-while-two-releases-share-a-cluster):
+
+```csharp
+public async Task<bool> IsDrained(string eventStoreName, string tenantNamespace, JobId jobId) =>
+    await jobs.StopAndDrain(new JobKey(eventStoreName, tenantNamespace), jobId, TimeSpan.Zero) is
+        DrainJobResult.Drained or DrainJobResult.Completed;
+```
+
+`IJobDrain.StopAndDrain` on the job grain is the same operation; every job implements it. The first call
+persists the job as `Stopped` together with a pending drain. It then asks each of the job's steps that can
+still run to drain: the step stops as for any stop, waits until its outcome is claimed, persists it, and
+answers. A step counts as drained only by its own answer; the report it sends the job as well is ignored.
+
+| Outcome | Meaning |
+| --- | --- |
+| `DrainJobResult.Drained(JobId)` | The job is stopped and drained, as described below |
+| `DrainJobResult.TimedOut(JobId)` | The job is stopped, but not every step drained in time. Call again: the next call asks only the steps that have not drained |
+| `DrainJobResult.Completed(JobId)` | The job had already completed, or failed, and none of its step work runs any more |
+| `DrainJobResult.NotFound(JobId)` | No stored job |
+| `DrainJobResult.UnknownJobType(JobId, JobType)` | The stored type is unavailable in this release, as for stop and delete |
+
+`Drained` means that:
+
+- no step's work or activation callback runs any more;
+- every step's outcome and last checkpoint is in step storage;
+- `OnStepCompletedOrStopped` has run for those steps - unless the job went away mid-drain, as described
+  below - and `OnStopped` has run;
+- the job's state is persisted.
+
+It does not cover work that your hooks or your step work start without awaiting it, such as a call to another
+grain that nothing waits for, and it does not wait for calls already on their way from step work to your own
+grains. Stamp such calls with a revision of your own, so their receiver can tell a late one apart. Nor does it
+keep a successful step's record: persisting a success deletes it (see
+[Step state](#step-state-lasts-only-as-long-as-the-step-needs-it)). Take what you need from a successful step
+through `OnStepCompletedOrStopped`, not only from step storage - but do not rely on the hook alone either: after
+a crash it can run again or not at all, as described below. Keep the results and positions you need in records
+of your own.
+
+The timeout is capped at half the Orleans response timeout less a margin, because the steps' own reports
+queue behind the drain. `TimeSpan.Zero` polls without waiting. Polling never cuts a step short: a step refuses
+its callbacks only once its own `StepStopTimeout` has passed since its stop began, so a final checkpoint still
+lands while you poll. A step whose activation is deactivating when the drain reaches it answers as not drained;
+the next call drains the activation that follows.
+
+A drained job is a stopped job: `Resume()` runs it again, and automatic recovery leaves it alone. Asking again
+after `Drained` writes nothing and runs no hook.
+
+The pending drain survives the job's silo. If that silo goes away mid-drain, the job completes the drain when
+it is next activated - by your next call or any other call to it - and `Resume()` refuses it with
+`CannotResumeJobError.JobCannotBeResumed` until then. The hooks can therefore run again for the same steps,
+so `OnStepCompletedOrStopped` and `OnStopped` must tolerate running twice.
+
+A crash can also leave `OnStepCompletedOrStopped` never running for a step:
+
+- a successful step whose report did not reach the job before it went away has no record left, so the drain
+  neither asks it nor finds its outcome in step storage;
+- a step that persisted its stop and answered the drain before the job went away answers the completing
+  drain from a fresh activation, which no longer has the outcome to hand over.
+
+Nothing of the job runs any more in either case. Read a step's result from your own records or positions, not
+from the hook alone.
+
+:::caution[Do not wait for a drain from a grain your job calls back into]
+A drain with a timeout above zero holds the job's turn while it waits, and your call holds yours. If step work
+or the job's hooks call back into your grain without interleaving - including step work that calls its own
+job - neither can proceed: the drain times out, or your call stalls until the response timeout. From such a
+grain, poll with `TimeSpan.Zero`, for instance from a grain timer, or make those callbacks interleave. Keep
+hooks and `CanResume` to `[AlwaysInterleave]` or read-only calls, or storage.
+:::
+
+:::note[Every silo must run v1.20.0 or later]
+A step hosted by an older silo cannot be drained, so its job answers `TimedOut` until that silo is upgraded.
+A write by an older silo can also drop the pending drain; the job is still stopped and nothing of it runs, and
+your next `StopAndDrain` drains it again. Use `StopAndDrain` only once every silo runs v1.20.0 or later.
+:::
+
+The drain stops the job and its steps; it does not decide whether they may run again. Starting or resuming
+the job later is up to whoever owns it.
 
 ## Deliver outside input to the job, not its steps
 

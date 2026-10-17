@@ -36,6 +36,13 @@ public sealed class DrainingStep(
     }
 
     /// <inheritdoc/>
+    public override async Task OnDeactivateAsync(DeactivationReason reason, CancellationToken cancellationToken)
+    {
+        await base.OnDeactivateAsync(reason, cancellationToken);
+        signals.Deactivated.TrySetResult();
+    }
+
+    /// <inheritdoc/>
     protected override Task<Result<PrepareJobStepError>> PrepareStep(DrainingRequest request) => Task.FromResult(Result<PrepareJobStepError>.Success());
 
     /// <inheritdoc/>
@@ -60,6 +67,10 @@ public sealed class DrainingStep(
     /// <inheritdoc/>
     protected override async Task<Catch<JobStepResult>> PerformStep(JobStepState currentState, CancellationToken cancellationToken)
     {
+        if (signals.Enter() && signals.SucceedWhenEnteredAgain)
+        {
+            return Catch<JobStepResult>.Success(JobStepResult.Succeeded());
+        }
         await Checkpoint("started");
         signals.Entered.TrySetResult(local.SiloAddress);
         try
@@ -82,6 +93,11 @@ public sealed class DrainingStep(
     Task<Result<ActivationCallbackRejected>> Checkpoint(string message) =>
         TryInvokeOnActivation(async () =>
         {
+            if (message == FinalCheckpointMessage && signals.HoldInFinalCheckpoint)
+            {
+                signals.InFinalCheckpoint.TrySetResult();
+                await signals.ReleaseWork.Task;
+            }
             State.Progress.Message = new(message);
             await WriteStateAsync();
         });

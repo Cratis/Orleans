@@ -46,6 +46,15 @@ public class JobState
     public JobProgress Progress { get; set; } = new();
 
     /// <summary>
+    /// Gets or sets a value indicating whether a drain of the job has begun and not settled yet.
+    /// </summary>
+    /// <remarks>
+    /// Written together with the stop that begins the drain, so a job that went away mid-drain completes it when it
+    /// is activated again and is not resumed before then.
+    /// </remarks>
+    public bool DrainPending { get; set; }
+
+    /// <summary>
     /// Gets or sets the request associated with the job.
     /// </summary>
     public IJobRequest Request { get; set; } = default!;

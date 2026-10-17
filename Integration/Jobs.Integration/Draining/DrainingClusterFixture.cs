@@ -21,7 +21,8 @@ public sealed class DrainingClusterFixture : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="DrainingClusterFixture"/> class.
     /// </summary>
-    public DrainingClusterFixture()
+    /// <param name="stepOnAnotherSilo">Whether the step is placed on the primary silo rather than with its job.</param>
+    public DrainingClusterFixture(bool stepOnAnotherSilo = false)
     {
         DrainingClusterConfigurator.Signals = Signals;
         Cluster = new TestClusterBuilder(2)
@@ -32,6 +33,12 @@ public sealed class DrainingClusterFixture : IDisposable
         Host = Cluster.SecondarySilos[0];
         HostAddress = ((InProcessSiloHandle)Host).SiloHost.Services.GetRequiredService<ILocalSiloDetails>().SiloAddress;
         RecoveryPlacementDirector.Target = HostAddress;
+        StepAddress = HostAddress;
+        if (stepOnAnotherSilo)
+        {
+            StepAddress = ((InProcessSiloHandle)Cluster.Primary).SiloHost.Services.GetRequiredService<ILocalSiloDetails>().SiloAddress;
+            RecoveryPlacementDirector.TypeTarget = (GrainType.Create("cratis-integration-draining-step"), StepAddress);
+        }
     }
 
     /// <summary>
@@ -55,6 +62,21 @@ public sealed class DrainingClusterFixture : IDisposable
     public SiloAddress HostAddress { get; }
 
     /// <summary>
+    /// Gets the address of the silo hosting the step.
+    /// </summary>
+    public SiloAddress StepAddress { get; }
+
+    /// <summary>
+    /// Gets the caller-local jobs entry point of the primary silo.
+    /// </summary>
+    public IJobs Jobs => ((InProcessSiloHandle)Cluster.Primary).SiloHost.Services.GetRequiredService<IJobs>();
+
+    /// <summary>
+    /// Gets the key of the jobs the specs run.
+    /// </summary>
+    public JobKey Key => new(Signals.Key.Scope, Signals.Key.Namespace);
+
+    /// <summary>
     /// Gets the jobs manager.
     /// </summary>
     public IJobsManager Manager => Cluster.GrainFactory.GetJobsManager(Signals.Key.Scope, Signals.Key.Namespace);
@@ -72,7 +94,7 @@ public sealed class DrainingClusterFixture : IDisposable
         var id = JobId.New();
         var result = await Manager.Start<IDrainingJob, DrainingRequest>(id, new()).WaitAsync(Deadline, TimeProvider.System);
         result.IsSuccess.ShouldBeTrue();
-        (await Signals.Entered.Task.WaitAsync(Deadline, TimeProvider.System)).ShouldEqual(HostAddress);
+        (await Signals.Entered.Task.WaitAsync(Deadline, TimeProvider.System)).ShouldEqual(StepAddress);
         return id;
     }
 
@@ -85,6 +107,27 @@ public sealed class DrainingClusterFixture : IDisposable
     {
         RecoveryPlacementDirector.Target = null;
         await Cluster.StopSiloAsync(Host).WaitAsync(Deadline, TimeProvider.System);
+    }
+
+    /// <summary>
+    /// Kills the silo hosting the job and its step and waits until the cluster has declared it dead, letting
+    /// anything activated afterwards go to the surviving silo.
+    /// </summary>
+    /// <returns>Awaitable task.</returns>
+    public async Task KillHost()
+    {
+        RecoveryPlacementDirector.Target = null;
+        RecoveryPlacementDirector.TypeTarget = null;
+        await Cluster.KillSiloAsync(Host).WaitAsync(Deadline, TimeProvider.System);
+        var membership = ((InProcessSiloHandle)Cluster.Primary).SiloHost.Services.GetRequiredService<IClusterMembershipService>();
+        using var deadline = new CancellationTokenSource(Deadline);
+        await foreach (var snapshot in membership.MembershipUpdates.WithCancellation(deadline.Token))
+        {
+            if (snapshot.GetSiloStatus(HostAddress) is SiloStatus.Dead)
+            {
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -117,6 +160,7 @@ public sealed class DrainingClusterFixture : IDisposable
     public void Dispose()
     {
         RecoveryPlacementDirector.Target = null;
+        RecoveryPlacementDirector.TypeTarget = null;
         Cluster.StopAllSilos();
         Cluster.Dispose();
         new MongoClient(JobsClusterFixture.ConnectionString).DropDatabase(Signals.Database);

@@ -36,12 +36,15 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     [PersistentState(nameof(JobStepState), WellKnownGrainStorageProviders.JobSteps)]
     IPersistentState<TState> state,
     IJobStepThrottle throttle,
-    ILogger<JobStep<TRequest, TResult, TState>> logger) : GrainWithBackgroundTask<TRequest, JobStepResult>, IJobStep<TRequest, TResult, TState>, IJobObserver, IDisposable
+    ILogger<JobStep<TRequest, TResult, TState>> logger) : GrainWithBackgroundTask<TRequest, JobStepResult>, IJobStep<TRequest, TResult, TState>, IJobObserver, IJobStepDrain, IDisposable
     where TState : JobStepState
 {
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2213:Disposable fields should be disposed", Justification = "Work that outlived a timed-out stop may still release the gate; it holds no wait handle to free.")]
     readonly SemaphoreSlim _gate = new(1, 1);
     JobStepRun? _run;
+    PendingStart? _pendingStart;
+    bool _deactivateWhenDrained;
+    IGrainTimer? _pendingStartTimer;
     long _lastRunId;
     bool _deactivated;
     IJob _job = new NullJob();
@@ -161,40 +164,19 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     {
         using var scope = logger.BeginJobStepScope(State);
 
-        // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
-        // on the parent. A run whose work, callbacks or delivery have not settled is still live.
-        if (_run is { IsSettled: false })
+        // Read and removed before anything else, so the generation never flows into the work or its calls.
+        var generation = JobExecutionGeneration.Take();
+
+        // A job resumed while this step's stop of an earlier execution is still settling starts the step again once
+        // that stop has reported - never alongside it, and never by reporting the old stop as the new run's.
+        if (_run is { IsSettled: false, Phase: JobStepRunPhase.Stopping } stopping && IsLaterGeneration(generation, stopping.Generation))
         {
-            return StartJobStepError.AlreadyStarted;
-        }
-        if (!State.IsPrepared)
-        {
-            return StartJobStepError.NotPrepared;
-        }
-        switch (State.Status)
-        {
-            case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
-                return StartJobStepError.Completed;
-            case JobStepStatus.Failed:
-                return StartJobStepError.UnrecoverableFailedState;
+            logger.DeferringStartUntilStopSettles(generation!.Value);
+            _pendingStart = new(jobGrainId, generation.Value);
+            return Result.Success<StartJobStepError>();
         }
 
-        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current);
-        _run = run;
-        _job = GetJob(jobGrainId);
-        try
-        {
-            return await DispatchPreparedWork(run);
-        }
-        catch (Exception ex)
-        {
-            logger.FailedUnexpectedly(ex);
-            return StartJobStepError.Unknown;
-        }
-        finally
-        {
-            run.Started();
-        }
+        return await StartRun(jobGrainId, generation);
     }
 
     /// <inheritdoc/>
@@ -382,6 +364,45 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
     /// <returns>The result.</returns>
     protected abstract ValueTask<TResult?> CreateCancelledResultFromCurrentState(TState currentState);
 
+    async Task<Result<StartJobStepError>> StartRun(GrainId jobGrainId, long? generation)
+    {
+        // Reserve before yielding: Start may interleave with another Start, a stop or an outcome delivery waiting
+        // on the parent. A run whose work, callbacks or delivery have not settled is still live.
+        if (_run is { IsSettled: false })
+        {
+            return StartJobStepError.AlreadyStarted;
+        }
+        if (!State.IsPrepared)
+        {
+            return StartJobStepError.NotPrepared;
+        }
+        switch (State.Status)
+        {
+            case JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure:
+                return StartJobStepError.Completed;
+            case JobStepStatus.Failed:
+                return StartJobStepError.UnrecoverableFailedState;
+        }
+
+        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current, generation);
+        _run = run;
+        _pendingStart = null;
+        _job = GetJob(jobGrainId);
+        try
+        {
+            return await DispatchPreparedWork(run);
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
+            return StartJobStepError.Unknown;
+        }
+        finally
+        {
+            run.Started();
+        }
+    }
+
     async Task<Result<StartJobStepError>> DispatchPreparedWork(JobStepRun run)
     {
         // Persist before dispatch so the worker cannot race its own reservation write.
@@ -439,6 +460,12 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
 
     void TryDeactivateOnIdle()
     {
+        // A deferred start runs on this activation; deactivating would lose it.
+        if (_pendingStart is not null)
+        {
+            return;
+        }
+
         try
         {
             DeactivateOnIdle();
@@ -457,6 +484,13 @@ public abstract partial class JobStep<TRequest, TResult, TState>(
             {
                 logger.SkippedWriteForEndedRun(status);
                 return Task.FromResult<Result<JobStepError>>(JobStepError.Unknown);
+            }
+
+            // A drained outcome is already persisted; only a removal still follows it.
+            if (run is { OutcomePersisted: true } && status is not JobStepStatus.Removing)
+            {
+                logger.SkippedWriteForDrainedRun(status);
+                return Task.FromResult(Result<JobStepError>.Success());
             }
             return WriteStatusChange(status, exceptionMessages, exceptionStackTrace);
         });

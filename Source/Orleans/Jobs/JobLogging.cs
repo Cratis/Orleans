@@ -145,6 +145,45 @@ public static partial class JobLogMessages
 
     [LoggerMessage(LogLevel.Debug, "Not all steps was completed successfully")]
     public static partial void AllStepsNotCompletedSuccessfully(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job ignored a stop of job step {JobStepId} from earlier execution {Generation}; the step stays tracked")]
+    internal static partial void IgnoringStopOfEarlierExecution(this ILogger<IJob> logger, JobStepId jobStepId, long generation);
+
+    [LoggerMessage(LogLevel.Information, "Job ignored an outcome of job step {JobStepId} from earlier execution {Generation}; the step is no longer tracked")]
+    internal static partial void IgnoringOutcomeOfEarlierExecution(this ILogger<IJob> logger, JobStepId jobStepId, long generation);
+
+    [LoggerMessage(LogLevel.Information, "Job is starting {Count} job steps again whose stop of an earlier execution it ignored")]
+    internal static partial void RestartingStepsAfterEarlierStops(this ILogger<IJob> logger, int count);
+
+    [LoggerMessage(LogLevel.Debug, "Job ignored an outcome of job step {JobStepId} that a drain already accounted for")]
+    internal static partial void IgnoringOutcomeAccountedForByDrain(this ILogger<IJob> logger, JobStepId jobStepId);
+
+    [LoggerMessage(LogLevel.Information, "Job is not resumed while a drain of it is pending")]
+    internal static partial void NotResumingWhileDrainIsPending(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job is stopping and draining its steps")]
+    internal static partial void BeginningDrain(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job is drained")]
+    internal static partial void Drained(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Information, "Job drain timed out with {Count} job steps not drained yet")]
+    internal static partial void DrainTimedOut(this ILogger<IJob> logger, int count);
+
+    [LoggerMessage(LogLevel.Warning, "Job failed draining job step {JobStepId}")]
+    internal static partial void FailedDrainingJobStep(this ILogger<IJob> logger, Exception ex, JobStepId jobStepId);
+
+    [LoggerMessage(LogLevel.Warning, "Job failed handling the outcome of drained job step {JobStepId}")]
+    internal static partial void FailedHandlingDrainedJobStep(this ILogger<IJob> logger, Exception ex, JobStepId jobStepId);
+
+    [LoggerMessage(LogLevel.Information, "Job continued a pending drain after activation: {Status}")]
+    internal static partial void CompletedPendingDrainAfterActivation(this ILogger<IJob> logger, JobDrainStatus status);
+
+    [LoggerMessage(LogLevel.Warning, "Job drain found steps in storage that are neither stopped nor completed; the drain stays pending")]
+    internal static partial void DrainLeftStepsUnaccounted(this ILogger<IJob> logger);
+
+    [LoggerMessage(LogLevel.Warning, "Job failed continuing a pending drain after activation")]
+    internal static partial void FailedCompletingPendingDrain(this ILogger<IJob> logger, Exception ex);
 }
 
 public static class JobScopes

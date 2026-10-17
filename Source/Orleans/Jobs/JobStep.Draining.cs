@@ -20,14 +20,43 @@ public abstract partial class JobStep<TRequest, TResult, TState>
     public async Task<Result<JobStepError>> Stop(bool removing)
     {
         using var scope = logger.BeginJobStepScope(State);
-        return await StopWithinDeadline(removing);
+        return await StopWithinDeadline(removing, JobExecutionGeneration.Take());
     }
 
     /// <inheritdoc/>
-    public Task OnJobStopped() => AcceptStop(false);
+    /// <remarks>
+    /// Stops the step like a stop through its job, then waits - bounded by <paramref name="timeout"/> - until the
+    /// outcome is claimed and persists it under the gate. Waiting never closes admission: the stop does that at its
+    /// own deadline. The outcome is still reported to the job, which ignores it once the drain has accounted for it.
+    /// A persisted success removes the step's record, so its result cannot be read back from step storage later.
+    /// A drain that reaches an activation while it deactivates answers not drained once its wait ends: deactivating
+    /// leaves the step to recovery rather than claiming its outcome. The next drain reaches the new activation.
+    /// </remarks>
+    public async Task<JobStepDrainResult> Drain(long generation, TimeSpan timeout)
+    {
+        using var scope = logger.BeginJobStepScope(State);
+
+        // The generation comes as an argument; one inherited from the caller must not flow into the stop or its report.
+        _ = JobExecutionGeneration.Take();
+
+        // The job drains its current execution; nothing deferred may start after it. The activation stayed only for
+        // that start, so once drained it deactivates as it would have after its stop.
+        _deactivateWhenDrained |= _pendingStart is not null;
+        _pendingStart = null;
+        var result = await DrainRun(generation, timeout);
+        if (result.Drained && _deactivateWhenDrained)
+        {
+            _deactivateWhenDrained = false;
+            TryDeactivateOnIdle();
+        }
+        return result;
+    }
 
     /// <inheritdoc/>
-    public Task OnJobRemoved() => AcceptStop(true);
+    public Task OnJobStopped() => AcceptStop(false, JobExecutionGeneration.Take());
+
+    /// <inheritdoc/>
+    public Task OnJobRemoved() => AcceptStop(true, JobExecutionGeneration.Take());
 
     static async Task<bool> Drained(JobStepRun run, CancellationToken deadline) =>
         await Settled(run.Startup, deadline) &&
@@ -52,23 +81,87 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
     }
 
-    Task AcceptStop(bool removing)
+    static JobStepStatus StatusOf(JobStepResult? outcome)
+    {
+        if (outcome is null)
+        {
+            return JobStepStatus.Stopped;
+        }
+        if (!outcome.TryGetError(out var error))
+        {
+            return JobStepStatus.CompletedSuccessfully;
+        }
+        return error.Cancelled ? JobStepStatus.Stopped : JobStepStatus.CompletedWithFailure;
+    }
+
+    static bool IsLaterGeneration(long? generation, long? than) =>
+        generation is { } value && (than is not { } other || value > other);
+
+    async Task<JobStepDrainResult> DrainRun(long generation, TimeSpan timeout)
+    {
+        if (_run is not { IsSettled: false } && State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed or JobStepStatus.Stopped)
+        {
+            return new(true, State.Status, _run?.Outcome);
+        }
+
+        // Nothing here yields until the run carries its stop, as for any other stop.
+        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
+        if (!run.IsDraining)
+        {
+            run.BeginDrain(JobStepRunPhase.Stopping);
+            run.Stop ??= FinishStop(run);
+            _ = ClaimWithinStopTimeout(run);
+        }
+
+        using var wait = new CancellationTokenSource(timeout);
+        if (!await Settled(run.StopClaimed, wait.Token))
+        {
+            logger.NotDrainedInTime(timeout);
+            return new(false, State.Status, null);
+        }
+
+        await _gate.WaitAsync();
+        try
+        {
+            if (!IsCurrent(run))
+            {
+                return new(false, State.Status, null);
+            }
+            return await PersistDrainedOutcome(run);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    Task AcceptStop(bool removing, long? generation)
     {
         // The job is notified from inside its own stop and cannot take the step's report until it returns, so
         // accept once cancellation is requested and let the stop finish on the activation.
-        _ = StopWithinDeadline(removing);
+        _ = StopWithinDeadline(removing, generation);
         return Task.CompletedTask;
     }
 
-    async Task<Result<JobStepError>> StopWithinDeadline(bool removing)
+    async Task<Result<JobStepError>> StopWithinDeadline(bool removing, long? generation)
     {
         // The deadline starts before anything is waited for: the run, the gate, the work and its callbacks.
         using var deadline = new CancellationTokenSource(_stopTimeout);
-        return await StopRun(removing, deadline.Token);
+        return await StopRun(removing, generation, deadline.Token);
     }
 
-    async Task<Result<JobStepError>> StopRun(bool removing, CancellationToken deadline)
+    async Task<Result<JobStepError>> StopRun(bool removing, long? generation, CancellationToken deadline)
     {
+        // A stop of an earlier execution that arrives after the job resumed must not stop the resumed execution.
+        if (IsOfEarlierExecution(generation))
+        {
+            logger.IgnoringStopOfEarlierExecution(generation!.Value);
+            return Result.Success<JobStepError>();
+        }
+
+        // Any other stop wins over a start deferred until the previous stop settled.
+        _pendingStart = null;
+
         // A late notification must not replace a terminal outcome or report a second outcome to the job.
         if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
         {
@@ -84,25 +177,63 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         logger.Stopping();
 
         // Nothing here yields until the run carries its stop, so no start or second stop can see it settled.
-        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun();
+        var run = _run is { IsSettled: false } live ? live : StartStopOnlyRun(generation);
         run.BeginDrain(removing ? JobStepRunPhase.Removing : JobStepRunPhase.Stopping);
         run.Stop ??= FinishStop(run);
 
+        return await ClaimWithinDeadline(run, deadline)
+            ? Result.Success<JobStepError>()
+            : JobStepError.StopTimedOut;
+    }
+
+    async Task ClaimWithinStopTimeout(JobStepRun run)
+    {
+        using var deadline = new CancellationTokenSource(_stopTimeout);
+        _ = await ClaimWithinDeadline(run, deadline.Token);
+    }
+
+    async Task<bool> ClaimWithinDeadline(JobStepRun run, CancellationToken deadline)
+    {
         var elapsed = Stopwatch.StartNew();
         if (await Settled(run.StopClaimed, deadline))
         {
-            return Result.Success<JobStepError>();
+            return true;
         }
 
         // The stop goes on: it reports the outcome once the work settles, whenever that is.
         run.CloseAdmission();
         logger.StopTimedOut(Name, JobStepId, JobId, elapsed.Elapsed, run.DescribeUnsettled());
-        return JobStepError.StopTimedOut;
+        return false;
     }
 
-    JobStepRun StartStopOnlyRun()
+    async Task<JobStepDrainResult> PersistDrainedOutcome(JobStepRun run)
     {
-        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current);
+        // A terminal status is already persisted - a success is written before it is reported.
+        if (State.Status is JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed)
+        {
+            run.OutcomePersisted = true;
+            return new(true, State.Status, run.Outcome);
+        }
+
+        var status = StatusOf(run.Outcome);
+
+        // A step that was never prepared has no record to write; there is nothing of it to persist.
+        if (!run.OutcomePersisted && State.Status != status && State.IsPrepared)
+        {
+            run.Outcome!.TryGetError(out var failure);
+            if ((await WriteStatusChange(status, failure?.ErrorMessages, failure?.ExceptionStackTrace)).TryGetError(out _))
+            {
+                return new(false, State.Status, null);
+            }
+        }
+        run.OutcomePersisted = true;
+        return new(true, status, run.Outcome);
+    }
+
+    JobStepRun StartStopOnlyRun(long? generation)
+    {
+        // A stop with no run to stop reports for the execution that asked for it.
+        var run = new JobStepRun(++_lastRunId, TaskScheduler.Current, generation);
         run.Started();
         _run = run;
         return run;
@@ -144,6 +275,66 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         finally
         {
             run.Claimed();
+        }
+
+        // A start deferred until this stop settled runs in a turn of its own, once nothing of this run is in flight.
+        if (_pendingStart is not null && IsCurrent(run))
+        {
+            _pendingStartTimer ??= this.RegisterGrainTimer(
+                StartPending,
+                new GrainTimerCreationOptions { DueTime = TimeSpan.Zero, Period = Timeout.InfiniteTimeSpan });
+        }
+    }
+
+    bool IsOfEarlierExecution(long? generation) =>
+        generation is { } stop &&
+        (_pendingStart?.Generation ?? (_run is { IsSettled: false } live ? live.Generation : null)) is { } current &&
+        stop < current;
+
+    async Task StartPending(CancellationToken cancellationToken)
+    {
+        _pendingStartTimer?.Dispose();
+        _pendingStartTimer = null;
+        if (_pendingStart is not { } pending || _deactivated)
+        {
+            return;
+        }
+
+        _pendingStart = null;
+        using var scope = logger.BeginJobStepScope(State);
+        var started = await StartRun(pending.JobGrainId, pending.Generation);
+        if (!started.TryGetError(out var error))
+        {
+            return;
+        }
+
+        if (error is not (StartJobStepError.Completed or StartJobStepError.AlreadyStarted))
+        {
+            // The job counts the step as started in its new execution, so a start that cannot happen must reach it.
+            logger.DeferredStartFailed(error);
+            await ReportDeferredStartFailure(pending, error);
+        }
+        else
+        {
+            logger.DeferredStartNotNeeded(error);
+        }
+        TryDeactivateOnIdle();
+    }
+
+    async Task ReportDeferredStartFailure(PendingStart pending, StartJobStepError error)
+    {
+        try
+        {
+            using var generation = JobExecutionGeneration.Report(pending.Generation);
+            var failure = PerformJobStepError.Failed([$"The step could not be started again after its stop: {error}"], string.Empty);
+            if ((await GetJob(pending.JobGrainId).OnStepFailed(JobStepId, JobStepResult.Failed(failure))).TryGetError(out var jobError))
+            {
+                logger.FailedReportJobStepFailure(jobError);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.FailedUnexpectedly(ex);
         }
     }
 
@@ -215,8 +406,17 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             return;
         }
 
+        // The delivery inherits the context of whatever started it, so it always reports the run's own generation.
+        using var generation = JobExecutionGeneration.Report(run.Generation);
         try
         {
+            // The job that drained the step took the outcome from the drain; reporting it again changes nothing.
+            if (run.OutcomePersisted)
+            {
+                logger.SkippedReportForDrainedRun();
+                return;
+            }
+
             if (outcome.TryGetError(out var error))
             {
                 _ = await ReportFailureToJob(run, error);
@@ -283,4 +483,11 @@ public abstract partial class JobStep<TRequest, TResult, TState>
             error.ErrorMessages,
             error.ExceptionStackTrace);
     }
+
+    /// <summary>
+    /// A start that waits for the stop of an earlier execution to settle.
+    /// </summary>
+    /// <param name="JobGrainId">The job that asked for the start.</param>
+    /// <param name="Generation">The job's execution generation the start belongs to.</param>
+    sealed record PendingStart(GrainId JobGrainId, long Generation);
 }
