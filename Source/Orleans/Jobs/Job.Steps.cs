@@ -26,7 +26,7 @@ public abstract partial class Job<TRequest, TJobState>
             return Result.Success<JobError>();
         }
         _logger.StepSuccessfullyCompleted(stepId);
-        OutcomeCounted(stepId, succeeded: true);
+        OutcomeCounted(stepId);
         State.Progress.SuccessfulSteps++;
         CountStepOutcomeInStage(stepId, succeeded: true);
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -49,12 +49,12 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if (await IgnoreStepOutcome(stepId, stopped: false, failed: true))
+        if (await IgnoreStepOutcome(stepId, stopped: false))
         {
             return Result.Success<JobError>();
         }
         _logger.StepFailed(stepId);
-        OutcomeCounted(stepId, succeeded: false);
+        OutcomeCounted(stepId);
         State.Progress.FailedSteps++;
         CountStepOutcomeInStage(stepId, succeeded: false);
         return await PerformStepEventHandling(stepId, jobStepResult);

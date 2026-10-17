@@ -6,7 +6,7 @@ namespace Cratis.Orleans.Jobs;
 public abstract partial class Job<TRequest, TJobState>
 {
     readonly HashSet<JobStepId> _stepsToRestartAfterEarlierStop = [];
-    readonly Dictionary<JobStepId, bool> _outcomesCounted = [];
+    readonly HashSet<JobStepId> _outcomesCounted = [];
     IGrainTimer? _restartStepsTimer;
 
     /// <summary>
@@ -14,9 +14,8 @@ public abstract partial class Job<TRequest, TJobState>
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the reporting step.</param>
     /// <param name="stopped">Whether the step reports that it stopped.</param>
-    /// <param name="failed">Whether the step reports that it failed.</param>
     /// <returns>True if the outcome is ignored, false if it counts.</returns>
-    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped, bool failed = false)
+    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped)
     {
         // Read and removed first, so the generation never flows into the hooks and stages the outcome leads to. Only a
         // generation the step reported counts: one it merely inherited from its job's call says nothing about its run.
@@ -39,11 +38,11 @@ public abstract partial class Job<TRequest, TJobState>
                 return true;
             }
 
-            // Success and failure are facts whatever the execution, but each step counts once: only while tracked.
-            if (_jobStepGrains?.ContainsKey(stepId) != true)
+            // Success and failure are facts whatever the execution, and are counted as they always were while the job
+            // runs - unless this activation already counted this step's outcome, which must not count twice.
+            if (_jobStepGrains?.ContainsKey(stepId) != true && _outcomesCounted.Contains(stepId))
             {
                 _logger.IgnoringOutcomeOfEarlierExecution(stepId, reported);
-                await RecountAfterUntrackedOutcome(stepId, failed);
                 return true;
             }
         }
@@ -55,61 +54,7 @@ public abstract partial class Job<TRequest, TJobState>
     /// Remember that this activation counted a step's success or failure.
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
-    /// <param name="succeeded">Whether the step succeeded.</param>
-    void OutcomeCounted(JobStepId stepId, bool succeeded) => _outcomesCounted[stepId] = succeeded;
-
-    /// <summary>
-    /// Recount the job from step storage after a success or failure of an earlier execution arrived for a step the
-    /// running job no longer tracks.
-    /// </summary>
-    /// <param name="stepId">The <see cref="JobStepId"/> of the reporting step.</param>
-    /// <param name="failed">Whether the step reported that it failed.</param>
-    /// <returns>Awaitable task.</returns>
-    /// <remarks>
-    /// A resume reloads what it tracks from step storage, where a persisted success is already gone, and an activation
-    /// that began after the outcome was persisted never tracked the step. Unless this activation counted the outcome
-    /// itself, it cannot tell whether it is in the progress, so dropping it could leave a stage or the job one step
-    /// short forever. Storage has the outcome either way, so the progress is recounted from it - in this turn, as any
-    /// other outcome advances the job in the turn that reports it. A failure is reported before the step persists it,
-    /// so a failure this activation counted, the reported one included, still counts while its record lags behind.
-    /// </remarks>
-    async Task RecountAfterUntrackedOutcome(JobStepId stepId, bool failed)
-    {
-        if (_outcomesCounted.ContainsKey(stepId) || State.Status is not (JobStatus.Running or JobStatus.StartingSteps))
-        {
-            return;
-        }
-
-        OutcomeCounted(stepId, succeeded: !failed);
-        if (await ReconcileProgressFromJobSteps() is not { } steps)
-        {
-            return;
-        }
-
-        var counted = steps
-            .Where(step =>
-                step.Status is not (JobStepStatus.CompletedSuccessfully or JobStepStatus.CompletedWithFailure or JobStepStatus.Failed or JobStepStatus.Unreachable) &&
-                _outcomesCounted.ContainsKey(step.Id.JobStepId))
-            .Select(step => (step.Id.JobStepId, Succeeded: _outcomesCounted[step.Id.JobStepId]));
-        foreach (var (id, succeeded) in counted)
-        {
-            if (succeeded)
-            {
-                State.Progress.SuccessfulSteps++;
-            }
-            else
-            {
-                State.Progress.FailedSteps++;
-            }
-            CountStepOutcomeInStage(id, succeeded);
-        }
-
-        // A stage the recount completed starts the next one, or stops the job at a failed barrier.
-        if (await ResumeStagesLeftBetween() is null)
-        {
-            _ = await HandleCompletionResult(await HandleCompletion());
-        }
-    }
+    void OutcomeCounted(JobStepId stepId) => _outcomesCounted.Add(stepId);
 
     async Task<bool> IgnoreLateStepOutcome(JobStepId stepId)
     {
