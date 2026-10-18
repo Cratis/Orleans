@@ -16,6 +16,10 @@ public abstract partial class Job<TRequest, TJobState>
         try
         {
             await WriteStateAsync();
+            if (State.Status is not (JobStatus.Stopped or JobStatus.Removing))
+            {
+                ClearStepNotificationRetries();
+            }
             if (State.Status is JobStatus.Running)
             {
                 // Only a durable reopening may cancel recovery of the previous completion.

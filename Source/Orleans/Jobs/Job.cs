@@ -400,6 +400,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
             if (State.Status is JobStatus.Removing)
             {
+                await StopNonCompletedStepsAndEnsureCompletion(true);
                 return RemoveJobError.JobIsAlreadyBeingRemoved;
             }
 
@@ -595,13 +596,6 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         }
     }
 
-    async Task NotifySteps(bool removing)
-    {
-        // A step tells a stop of the execution it runs in apart from a late stop of an earlier one by its generation.
-        using var generation = JobExecutionGeneration.Carry(ExecutionGeneration());
-        await _observers!.Notify(o => removing ? o.OnJobRemoved() : o.OnJobStopped());
-    }
-
     async Task<bool> HandleResumeJobStepResult(JobStepId jobStepId, Result<StartJobStepError> result, IJobStep jobStepGrain)
     {
         if (!result.TryGetError(out var error))
@@ -685,6 +679,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (State.Status is JobStatus.Removing)
             {
                 await ClearStateAsync();
+                ClearStepNotificationRetries();
                 DeactivateOnIdleDuringShutdown();
                 return HandleCompletionSuccess.ClearedState;
             }
