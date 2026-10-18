@@ -9,5 +9,5 @@ public class and_preparation_was_interrupted : given.a_job_left_running
     async Task Because() => _result = await _job.Resume();
 
     [Fact] void should_refuse_to_claim_work_is_running() => _result.IsSuccess.ShouldBeFalse();
-    [Fact] void should_report_unprepared_job() => _result.AsT1.AsT0.ShouldEqual(CannotResumeJobError.JobIsNotPrepared);
+    [Fact] void should_report_unprepared_job() => _result.AsT1.AsT0.ShouldEqual(CannotResumeJobError.MissingStepPlan);
 }

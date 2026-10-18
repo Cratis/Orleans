@@ -1,0 +1,9 @@
+// Copyright (c) Cratis. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
+namespace Cratis.Orleans.Jobs.for_Job.given;
+
+public class SomeNonRoundTrippableRequest(string input)
+{
+    public string Value { get; } = input;
+}

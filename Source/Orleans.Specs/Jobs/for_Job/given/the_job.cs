@@ -58,6 +58,7 @@ public class the_job : Specification
             .Returns((object _, JobStepStage preparedStage) =>
             {
                 StoredJobStep(jobStepId).Stage = preparedStage;
+                StoredJobStep(jobStepId).IsPrepared = true;
                 return Task.FromResult(Result<PrepareJobStepError>.Success());
             });
         probe.Setup(_ => _.ReportStatusChange(It.IsAny<JobStepStatus>()))
@@ -113,6 +114,7 @@ public class the_job : Specification
     protected void ConfigureSilo()
     {
         _silo.AddService(_jobsStorage);
+        _silo.AddService(Serialization.CratisJsonSerializer.CreateSerializerOptions());
         _silo.AddService(_jobTypes);
         _silo.AddService(Options.Create(CreateOptions()));
         _silo.AddService(NullLogger<IJob>.Instance);

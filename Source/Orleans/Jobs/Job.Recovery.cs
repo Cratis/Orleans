@@ -19,6 +19,7 @@ public abstract partial class Job<TRequest, TJobState>
             // Running must already be durable: consumers may adopt this job from their own replay entry without
             // recursively resuming the job whose hook is waiting on them.
             await OnBeforeResumingJobSteps();
+            await RunDispatchHook(initializationMayBeIncomplete: false);
             return true;
         }
         catch (Exception exception)
@@ -56,7 +57,8 @@ public abstract partial class Job<TRequest, TJobState>
             var tracked = StepsInCurrentStage().Where(step => resumable.ContainsKey(step.Key))
                 .ToDictionary(step => step.Key, step => step.Value);
             await OnBeforeResumingJobSteps();
-            return await ResumeCurrentStage(tracked, reportAlreadyRunning: true);
+            await RunDispatchHook(initializationMayBeIncomplete: false);
+            return await ResumeCurrentStage(tracked, reportAlreadyRunning: _hasDispatchedSteps);
         }
 
         // Reconstruct a cold activation from durable state. A surviving step can still have an outcome queued
@@ -82,11 +84,14 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         await OnBeforeResumingJobSteps();
-        return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: true);
+        await RunDispatchHook(initializationMayBeIncomplete: false);
+        return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: _hasDispatchedSteps);
     }
 
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(Dictionary<JobStepId, IJobStep> steps, bool reportAlreadyRunning)
     {
+        await EnsureDispatchHook();
+        _hasDispatchedSteps = true;
         _hasLiveStepTracking = true;
         steps = SelectWindow(steps);
         var failedSteps = new List<JobStepId>();

@@ -153,7 +153,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         {
             return StartJobError.AlreadyCompleted;
         }
-        if (JobIsPrepared())
+        if (JobIsPrepared() || State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps)
         {
             return StartJobError.AlreadyBeenPrepared;
         }
@@ -215,9 +215,15 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
             }
 
+            if (_startStepsTimer is not null)
+            {
+                return ResumeJobSuccess.JobAlreadyRunning;
+            }
+
             // An execution that continues or begins again - a resume, or a rehydration after a silo went away - is
             // asked about once, before anything of it runs.
-            if (JobIsPrepared() && State.Status is JobStatus.Running or JobStatus.StartingSteps or JobStatus.Stopped or JobStatus.Removing)
+            if (State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps or JobStatus.StartingSteps ||
+                (JobIsPrepared() && State.Status is JobStatus.Running or JobStatus.Stopped or JobStatus.Removing))
             {
                 switch (await Admit(State.Request, "Resume"))
                 {
@@ -248,12 +254,15 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
             if (State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps)
             {
-                return _startStepsTimer is not null
-                    ? ResumeJobSuccess.JobAlreadyRunning
-                    : Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
+                return await RecoverStepPreparation();
             }
 
-            if (State.Status is JobStatus.Running or JobStatus.StartingSteps)
+            if (State.Status is JobStatus.StartingSteps)
+            {
+                return await RecoverStepStartup();
+            }
+
+            if (State.Status is JobStatus.Running)
             {
                 return await ResumeInterruptedSteps();
             }
@@ -443,6 +452,17 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     /// </summary>
     /// <returns>A task representing the operation.</returns>
     protected virtual Task OnBeforeResumingJobSteps() => Task.CompletedTask;
+
+    /// <summary>
+    /// Ensures consumer initialization before steps are dispatched on start or resume.
+    /// </summary>
+    /// <param name="context">Whether an interrupted startup may have left initialization incomplete.</param>
+    /// <returns>A task representing initialization. Failure prevents dispatch.</returns>
+    /// <remarks>
+    /// Runs after the existing start or resume hook. Make this hook idempotent: recovery can invoke it again.
+    /// The start hook itself is never replayed. Ordinary resumes of running or stopped jobs pass false.
+    /// </remarks>
+    protected virtual Task OnBeforeDispatchingJobSteps(JobStepDispatchContext context) => Task.CompletedTask;
 
     /// <summary>
     /// What needs to be done by the Job implementation when all job steps are completed or job is being removed.

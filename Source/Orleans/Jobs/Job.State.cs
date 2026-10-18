@@ -34,26 +34,6 @@ public abstract partial class Job<TRequest, TJobState>
         }
     }
 
-    async Task<Result<JobError>> SetTotalSteps(int totalSteps)
-    {
-        _logger.BeginJobScope(JobId, JobKey);
-        try
-        {
-            State.Progress.TotalSteps = totalSteps;
-            var writeResult = await WriteState();
-            return writeResult.Match(_ => Result.Success<JobError>(), ex =>
-            {
-                _logger.FailedToSetTotalSteps(ex);
-                return JobError.PersistStateError;
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.Failed(ex);
-            return JobError.UnknownError;
-        }
-    }
-
     async Task<Result<JobError>> WriteStatusChanged(JobStatus status, Exception? exception = null)
     {
         _logger.BeginJobScope(JobId, JobKey);

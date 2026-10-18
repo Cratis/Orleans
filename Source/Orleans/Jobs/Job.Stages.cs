@@ -128,12 +128,13 @@ public abstract partial class Job<TRequest, TJobState>
         return result;
     }
 
-    Task<Result<StartJobError>> StartStage(GrainId grainId, JobStageProgress stage)
+    async Task<Result<StartJobError>> StartStage(GrainId grainId, JobStageProgress stage)
     {
+        await EnsureDispatchHook();
         _logger.StartingStage(stage.Stage, stage.TotalSteps);
         DisposeStageAdmissionTimer();
         stage.IsStarted = true;
-        return StartAndSubscribeToJobSteps(grainId, StepsIn(stage.Stage));
+        return await StartAndSubscribeToJobSteps(grainId, StepsIn(stage.Stage));
     }
 
     /// <summary>
@@ -215,6 +216,7 @@ public abstract partial class Job<TRequest, TJobState>
 
         if (!await StopAtFailedBarrier() && State.Progress.Stages.Current() is { } current)
         {
+            await RunDispatchHook(initializationMayBeIncomplete: false);
             _ = await StartStage(this.GetGrainId(), current);
             await AdvanceStagesAfter(current, checkAdmission: false);
         }

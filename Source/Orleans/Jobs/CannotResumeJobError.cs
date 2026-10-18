@@ -27,4 +27,9 @@ public enum CannotResumeJobError
     /// A registered <see cref="IJobAdmission"/> refused the job, so it did not resume.
     /// </summary>
     NotAdmitted = 3,
+
+    /// <summary>
+    /// Preparation or startup was interrupted without a durable step plan. Replanning is unsafe.
+    /// </summary>
+    MissingStepPlan = 4,
 }
