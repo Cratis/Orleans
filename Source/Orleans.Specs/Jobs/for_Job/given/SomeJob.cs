@@ -13,6 +13,9 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public bool ShouldBeRemovedAfterCompleted;
     public bool ShouldBeRemovedAfterCompletedWithFailures;
     public bool ShouldBeResumable;
+    public bool StartInBackground;
+
+    protected override bool StartStepsInBackground => StartInBackground;
     public Func<Task>? BeforeStarting;
     public int BeforeStartingCount;
     public Func<JobStepDispatchContext, Task>? BeforeDispatching;

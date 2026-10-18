@@ -215,6 +215,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
             }
 
+            if (_startStepsTimer is not null)
+            {
+                return ResumeJobSuccess.JobAlreadyRunning;
+            }
+
             // An execution that continues or begins again - a resume, or a rehydration after a silo went away - is
             // asked about once, before anything of it runs.
             if (State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps or JobStatus.StartingSteps ||
@@ -249,9 +254,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
             if (State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps)
             {
-                return _startStepsTimer is not null
-                    ? ResumeJobSuccess.JobAlreadyRunning
-                    : await RecoverStepPreparation();
+                return await RecoverStepPreparation();
             }
 
             if (State.Status is JobStatus.StartingSteps)
