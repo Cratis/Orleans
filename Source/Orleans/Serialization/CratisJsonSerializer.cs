@@ -182,12 +182,12 @@ public class CratisJsonSerializer : IGeneralizedCodec, IGeneralizedCopier, IType
         try
         {
             using var jsonWriter = new Utf8JsonWriter(bufferWriter);
-            JsonSerializer.Serialize(jsonWriter, input!, _options);
+            JsonSerializer.Serialize(jsonWriter, input, _options);
             jsonWriter.Flush();
 
             var sequence = bufferWriter.Value.AsReadOnlySequence();
             var jsonReader = new Utf8JsonReader(sequence);
-            result = JsonSerializer.Deserialize(ref jsonReader, input!.GetType(), _options)
+            result = JsonSerializer.Deserialize(ref jsonReader, input.GetType(), _options)
                 ?? throw new JsonException($"System.Text.Json returned null while deep copying an instance of type '{input.GetType()}'.");
         }
         finally
@@ -195,7 +195,7 @@ public class CratisJsonSerializer : IGeneralizedCodec, IGeneralizedCopier, IType
             bufferWriter.Value.Dispose();
         }
 
-        context.RecordCopy(input!, result);
+        context.RecordCopy(input, result);
         return result;
     }
 

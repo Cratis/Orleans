@@ -101,7 +101,7 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         {
             throw new MissingStateCopier(typeof(TState), ex);
         }
-        return (copier ?? throw new MissingStateCopier(typeof(TState), null)).Copy(State)!;
+        return (copier ?? throw new MissingStateCopier(typeof(TState), null)).Copy(State);
     }
 
     Task<PerformWorkResult<JobStepResult>> RecordFailure(JobStepRun run, Exception exception)
