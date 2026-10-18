@@ -156,7 +156,9 @@ What a job remembers - its status, its progress, its request - persists through 
 default; override `KeepAfterCompleted` on the job to keep it queryable after it is done. A job that completes with
 failures is kept by default so the failure stays readable. A job that runs on a short cadence would keep one record
 per failed run for as long as the failure lasts, so it overrides `KeepAfterCompletedWithFailures` to let those go and
-reports its failures some other way.
+reports its failures some other way. The terminal status is persisted before state is cleared; a failed terminal
+write is retried while the activation stays alive, without rerunning the completion hook. A failed clear is retried
+once, and any remaining terminal record is left to `TerminalJobRetention` cleanup.
 
 ## Step state lasts only as long as the step needs it
 

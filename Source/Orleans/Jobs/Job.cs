@@ -534,7 +534,10 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         if (State.Status is JobStatus.Stopped)
         {
             _logger.FinalizingStoppedJobWithNothingLeftToRun();
-            StatusChanged(JobStatus.Running);
+            if (!await TryWriteStatusChanged(JobStatus.Running))
+            {
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
         }
 
         var completion = await HandleCompletion();
@@ -625,6 +628,14 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
     {
         try
         {
+            if (_completionRetryTimer is not null)
+            {
+                return JobError.PersistStateError;
+            }
+            if (_completionFinalized || State.Status is JobStatus.CompletedSuccessfully or JobStatus.CompletedWithFailures or JobStatus.Failed)
+            {
+                return HandleCompletionSuccess.NotClearedState;
+            }
             if (State.Progress is { IsCompleted: false, IsStopped: false })
             {
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
@@ -657,19 +668,22 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 StatusChanged(State.Progress.HasFailures ? JobStatus.CompletedWithFailures : JobStatus.CompletedSuccessfully);
             }
-            var shouldClearState = State.Status switch
+
+            // Removing retains its existing clear-only behavior.
+            if (State.Status is JobStatus.Removing)
+            {
+                await ClearStateAsync();
+                DeactivateOnIdleDuringShutdown();
+                return HandleCompletionSuccess.ClearedState;
+            }
+
+            _clearCompletedState = State.Status switch
             {
                 JobStatus.Failed => false,
-                JobStatus.Removing => true,
                 JobStatus.CompletedWithFailures => !KeepAfterCompletedWithFailures,
                 _ => !KeepAfterCompleted
             };
-            if (shouldClearState)
-            {
-                await ClearStateAsync();
-            }
-            DeactivateOnIdleDuringShutdown();
-            return shouldClearState ? HandleCompletionSuccess.ClearedState : HandleCompletionSuccess.NotClearedState;
+            return await FinalizeCompletion();
         }
         catch (Exception ex)
         {
