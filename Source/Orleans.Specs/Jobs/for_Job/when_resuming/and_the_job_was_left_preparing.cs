@@ -8,5 +8,5 @@ public class and_the_job_was_left_preparing : given.a_job_left_running
     void Establish() => _job.CurrentState.Status = JobStatus.PreparingJob;
     async Task Because() => _result = await _job.Resume();
 
-    [Fact] void should_report_unprepared_job() => _result.AsT1.AsT0.ShouldEqual(CannotResumeJobError.JobIsNotPrepared);
+    [Fact] void should_report_unprepared_job() => _result.AsT1.AsT0.ShouldEqual(CannotResumeJobError.MissingStepPlan);
 }

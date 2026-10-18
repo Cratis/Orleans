@@ -268,7 +268,13 @@ public abstract partial class Job<TRequest, TJobState>
             var grainId = this.GetGrainId();
             var steps = await PrepareSteps(request);
             PlanStages(steps);
-            _ = await SetTotalSteps(steps.Count);
+            State.StepPlan = SaveStepPlan(steps);
+            State.Progress.TotalSteps = steps.Count;
+            if (!await TryWriteStatusChanged(JobStatus.PreparingSteps))
+            {
+                DeactivateOnIdleDuringShutdown();
+                return StartJobError.Unknown;
+            }
             if (steps.Count == 0)
             {
                 _logger.NoJobStepsToStart();
@@ -290,8 +296,6 @@ public abstract partial class Job<TRequest, TJobState>
     async Task<Result<StartJobError>> PrepareAndStartAllJobSteps(GrainId grainId, IImmutableList<JobStepDetails> jobSteps)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        _ = await WriteStatusChanged(JobStatus.PreparingSteps);
-
         var jobStepGrainAndRequests = CreateGrainsFromJobSteps(jobSteps);
         _jobStepGrains = jobStepGrainAndRequests.ToDictionary(_ => _.Key, _ => _.Value.Grain);
         var prepareAllJobStepsResult = await TryPrepareAllJobSteps(jobStepGrainAndRequests);
@@ -303,10 +307,15 @@ public abstract partial class Job<TRequest, TJobState>
 #pragma warning restore CA2201
             return StartJobError.CouldNotPrepareJobSteps;
         }
-        _ = await WriteStatusChanged(JobStatus.StartingSteps);
+        if (!await TryWriteStatusChanged(JobStatus.StartingSteps))
+        {
+            DeactivateOnIdleDuringShutdown();
+            return StartJobError.Unknown;
+        }
 
         // For a job with stages only the first one starts here - the rest follow as each stage completes.
         await OnBeforeStartingJobSteps();
+        await RunDispatchHook(initializationMayBeIncomplete: false);
         var startJobStepsResult = await StartFirstStage(grainId);
 
         if (startJobStepsResult.TryGetError(out var startJobStepsError))
@@ -360,6 +369,8 @@ public abstract partial class Job<TRequest, TJobState>
 
     async Task<Result<StartJobError>> StartAndSubscribeToJobSteps(GrainId grainId, Dictionary<JobStepId, IJobStep> allJobStepGrains)
     {
+        await EnsureDispatchHook();
+        _hasDispatchedSteps = true;
         _hasLiveStepTracking = true;
         var jobStepGrains = SelectWindow(allJobStepGrains);
         var stepsLeftWaiting = allJobStepGrains.Count - jobStepGrains.Count;

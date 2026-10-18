@@ -14,6 +14,6 @@ public class and_every_unfinished_step_is_live : given.a_job_left_running
     async Task Because() => _result = await _job.Resume();
 
     [Fact] void should_confirm_liveness_before_reporting_already_running() => _unfinished.Verify(step => step.Start(It.IsAny<GrainId>()), Times.Once);
-    [Fact] void should_report_already_running() => ((ResumeJobSuccess)_result).ShouldEqual(ResumeJobSuccess.JobAlreadyRunning);
+    [Fact] void should_report_recovery_on_a_fresh_activation() => ((ResumeJobSuccess)_result).ShouldEqual(ResumeJobSuccess.Success);
     [Fact] void should_preserve_the_status_history() => _job.CurrentState.StatusChanges.Count.ShouldEqual(1);
 }

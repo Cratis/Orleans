@@ -25,6 +25,33 @@ stateDiagram-v2
 `PrepareSteps` says what a job will do before any of it happens. That is what lets somebody watch progress
 rather than a spinner: the total is known up front, and each step reports its own outcome as it finishes.
 
+The job saves the complete plan, including step identities, stages, grain types and preparation requests,
+before preparing any step. Recovery reuses that plan; it never calls `PrepareSteps` again. Preparation
+requests must round-trip with the host's `JsonSerializerOptions` (or the default Cratis JSON converters
+when none are registered), because the plan retains each request's concrete type and JSON payload.
+
+## Initialize before dispatch on start and resume
+
+A silo can stop during step preparation or inside your start hook, before initialization finishes. Override
+`OnBeforeDispatchingJobSteps(JobStepDispatchContext context)` for initialization that must be ensured before
+steps run on both start and resume. The default implementation does nothing. Make your override idempotent,
+using a durable consumer-owned token or phase when initialization has external effects. If the hook fails,
+that dispatch does not start any steps.
+
+The hook runs after `OnBeforeStartingJobSteps` on a clean start and after `OnBeforeResumingJobSteps` on a
+resume. Those existing hooks retain their roles; recovery never replays the start hook, even if the silo
+stopped before it ran. Resuming between stages also invokes the dispatch hook before starting the next stage.
+
+`context.InitializationMayBeIncomplete` is `true` when recovering `PreparingSteps` or `StartingSteps`.
+Recovery prepares only steps whose preparation was not saved, with their original identities, then ensures
+initialization before dispatch. It is `false` on a clean first start and on an ordinary resume of a running
+or stopped job: startup already crossed the initialization barrier before reaching `Running`. The flag is
+not an exactly-once guarantee; your initialization still needs to tolerate retries.
+
+A job interrupted before its plan was saved, or a legacy job left preparing or starting without a plan,
+returns `CannotResumeJobError.MissingStepPlan` from `Resume` instead of generating new step identities.
+A fresh activation never treats a persisted starting or running status alone as proof it is already running.
+
 ## Steps are grains
 
 Each step runs as an independent grain activation, so slow or hanging steps cannot stall each other or the

@@ -13,6 +13,13 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public bool ShouldBeRemovedAfterCompleted;
     public bool ShouldBeRemovedAfterCompletedWithFailures;
     public bool ShouldBeResumable;
+    public Func<Task>? BeforeStarting;
+    public int BeforeStartingCount;
+    public Func<JobStepDispatchContext, Task>? BeforeDispatching;
+    public List<JobStepDispatchContext> DispatchContexts = [];
+    public Func<SomeJobState, bool>? RejectWrite;
+    public Func<Task<IImmutableList<JobStepDetails>>>? PlanSteps;
+    public Func<Task>? AfterWrite;
     public Func<Task>? BeforeResuming;
     public int BeforeResumingCount;
     public HashSet<JobStepStage> StagesContinuingOnFailure = [];
@@ -31,7 +38,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(SomeRequest request)
     {
         PrepareStepsCount++;
-        return Task.FromResult<IImmutableList<JobStepDetails>>(StepsToPrepare.ToImmutableList());
+        return PlanSteps?.Invoke() ?? Task.FromResult<IImmutableList<JobStepDetails>>(StepsToPrepare.ToImmutableList());
     }
 
     protected override bool KeepAfterCompleted => !ShouldBeRemovedAfterCompleted;
@@ -77,6 +84,21 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
 
     protected override Task<bool> CanResume() => Task.FromResult(ShouldBeResumable);
 
+    protected override Task OnBeforeStartingJobSteps()
+    {
+        BeforeStartingCount++;
+        return BeforeStarting?.Invoke() ?? Task.CompletedTask;
+    }
+
+    protected override async Task OnBeforeDispatchingJobSteps(JobStepDispatchContext context)
+    {
+        if (BeforeDispatching is not null)
+        {
+            await BeforeDispatching(context);
+        }
+        DispatchContexts.Add(context);
+    }
+
     protected override Task OnBeforeResumingJobSteps()
     {
         BeforeResumingCount++;
@@ -92,7 +114,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override async Task WriteStateAsync()
     {
         WriteAttempts++;
-        if (!FailWrites || PersistBeforeFailingWrite)
+        var rejected = FailWrites || RejectWrite?.Invoke(State) == true;
+        if (!rejected || PersistBeforeFailingWrite)
         {
             await base.WriteStateAsync();
             WrittenStates.Add(new()
@@ -103,12 +126,17 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
                 Status = State.Status,
                 StatusChanges = State.StatusChanges.ToList(),
                 DrainPending = State.DrainPending,
+                StepPlan = State.StepPlan?.ToList(),
                 Progress = State.Progress with { Stages = State.Progress.Stages.Select(stage => stage with { }).ToList() }
             });
         }
-        if (FailWrites)
+        if (rejected)
         {
             throw new InvalidOperationException("The write failed");
+        }
+        if (AfterWrite is not null)
+        {
+            await AfterWrite();
         }
     }
 
