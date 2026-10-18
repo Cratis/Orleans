@@ -427,7 +427,7 @@ public class JobsManager(
     {
         var deadJobs = new List<JobState>();
 
-        foreach (var job in preparingJobs)
+        foreach (var job in preparingJobs.Where(job => job.StepPlan is null))
         {
             var stepCountResult = await _jobStepStorage!.CountForJob(job.Id);
             var shouldDelete = await stepCountResult.Match(
@@ -712,6 +712,9 @@ public class JobsManager(
                 break;
             case CannotResumeJobError.NotAdmitted:
                 logger.JobNotAdmitted(jobId);
+                break;
+            case CannotResumeJobError.MissingStepPlan:
+                logger.CannotResumeJobWithoutStepPlan(jobId);
                 break;
             default:
                 logger.FailedResumingJob(jobId);
