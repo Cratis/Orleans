@@ -120,6 +120,13 @@ public abstract partial class Job<TRequest, TJobState>
             }
         }
         _jobStepGrains = steps.Where(step => !IsDone(step.Status)).ToDictionary(step => step.Id.JobStepId, GetJobStepGrain);
+
+        // Reconstructed terminal outcomes are already in the counters. Delayed reports must not count them again.
+        _countsFromStorage = true;
+        foreach (var step in plan.Where(step => !_jobStepGrains.ContainsKey(step.Id)))
+        {
+            OutcomeCounted(step.Id);
+        }
         await OnBeforeResumingJobSteps();
         await RunDispatchHook(initializationMayBeIncomplete: true);
         if (State.Progress.IsCompleted || await PrepareStagesForResume())
