@@ -27,6 +27,9 @@ public class and_one_step_fails_to_start_while_another_was_already_started : giv
     async Task Because() => _result = await _job.Start(new());
 
     [Fact] void should_report_that_only_some_steps_failed_starting() => ((StartJobError)_result).ShouldEqual(StartJobError.FailedStartingSomeJobSteps);
+    [Fact] void should_keep_the_job_running() => _job.CurrentState.Status.ShouldEqual(JobStatus.Running);
+    [Fact] void should_persist_the_running_status() => _job.WrittenStates[^1].Status.ShouldEqual(JobStatus.Running);
+    [Fact] void should_arm_the_watchdog() => _silo.TimerRegistry.NumberOfActiveTimers.ShouldEqual(1);
     [Fact] void should_only_count_the_genuinely_failed_step() => _job.CurrentState.Progress.FailedSteps.ShouldEqual(1);
     [Fact] void should_record_the_failing_step_as_failed() => _failingJobStep.Verify(_ => _.ReportStatusChange(JobStepStatus.Failed), Times.Once);
     [Fact] void should_not_record_the_already_started_step_as_failed() => _alreadyStartedJobStep.Verify(_ => _.ReportStatusChange(JobStepStatus.Failed), Times.Never);

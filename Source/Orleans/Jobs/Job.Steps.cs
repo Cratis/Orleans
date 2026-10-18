@@ -311,7 +311,7 @@ public abstract partial class Job<TRequest, TJobState>
 
         if (startJobStepsResult.TryGetError(out var startJobStepsError))
         {
-            if (startJobStepsError != StartJobError.AllJobStepsFailedStarting)
+            if (startJobStepsError is not (StartJobError.AllJobStepsFailedStarting or StartJobError.FailedStartingSomeJobSteps))
             {
                 return startJobStepsError;
             }
