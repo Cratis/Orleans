@@ -16,6 +16,11 @@ public abstract partial class Job<TRequest, TJobState>
         try
         {
             await WriteStateAsync();
+            if (State.Status is JobStatus.Running)
+            {
+                // Only a durable reopening may cancel recovery of the previous completion.
+                ResetCompletionFinalization();
+            }
             return Catch.Success();
         }
         catch (Exception e)
@@ -159,7 +164,6 @@ public abstract partial class Job<TRequest, TJobState>
         // Only a running job is watched; the watchdog checks the status again whenever it ticks.
         if (status is JobStatus.Running)
         {
-            ResetCompletionFinalization();
             EnsureWatchdog(WatchdogInterval);
         }
         else

@@ -36,6 +36,12 @@ public abstract partial class Job<TRequest, TJobState>
                 return Result.Failed<int, RetryFailedStepsError>(RetryFailedStepsError.JobIsNotCompletedWithFailures);
             }
 
+            // The in-memory terminal status must be durable before another execution may replace it.
+            if (_completionRetryTimer is not null && !_completionStateWritten)
+            {
+                return Result.Failed<int, RetryFailedStepsError>(RetryFailedStepsError.CouldNotPersist);
+            }
+
             var getFailed = await Storage.JobSteps.GetForJob(JobId, JobStepStatus.CompletedWithFailure);
             getFailed.RethrowError();
             var failed = getFailed.AsT0;

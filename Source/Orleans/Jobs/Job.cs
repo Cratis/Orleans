@@ -534,7 +534,10 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         if (State.Status is JobStatus.Stopped)
         {
             _logger.FinalizingStoppedJobWithNothingLeftToRun();
-            StatusChanged(JobStatus.Running);
+            if (!await TryWriteStatusChanged(JobStatus.Running))
+            {
+                return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
+            }
         }
 
         var completion = await HandleCompletion();
