@@ -55,6 +55,15 @@ public class JobState
     public bool DrainPending { get; set; }
 
     /// <summary>
+    /// Gets or sets the complete step plan saved before preparing any step.
+    /// </summary>
+    /// <remarks>
+    /// Null means no plan was saved, including jobs written before durable planning was introduced.
+    /// An empty plan is distinct from a missing plan.
+    /// </remarks>
+    public IReadOnlyList<PlannedJobStep>? StepPlan { get; set; }
+
+    /// <summary>
     /// Gets or sets the request associated with the job.
     /// </summary>
     public IJobRequest Request { get; set; } = default!;
