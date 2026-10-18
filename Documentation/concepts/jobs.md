@@ -669,9 +669,10 @@ cluster member Dead, the oldest Active silo requests another recovery pass when 
 The election uses the silo's generation and breaks ties by address. Without a host catalog, every surviving silo
 recovers the keys it remembers; electing one would miss keys known only to another survivor. Briefly disagreeing
 membership views can trigger duplicate passes; live steps are checked rather than started twice. Reminders play
-no part in recovery. If a provider's `GetKeys` or a manager's `Rehydrate()` fails, recovery retries only the failed
-providers and manager keys after 1 second, doubling the delay up to 60 seconds until they succeed or the silo stops.
-Retries do not require another membership change and do not block membership-triggered recovery passes.
+no part in recovery. If provider construction, a provider's `GetKeys`, or a manager's `Rehydrate()` fails, recovery
+retries only the failed providers and manager keys after 1 second, doubling the delay up to 60 seconds until they
+succeed or the silo stops. Retries do not require another membership change and do not block membership-triggered
+recovery passes.
 
 Recovery preserves the original job id, scope, namespace and current stage. It starts only unfinished prepared
 steps; successful steps remain completed. An interrupted step may execute again, so protect external effects with
@@ -697,8 +698,8 @@ Provide a singleton `IJobsManagerKeys` implementation on every silo for complete
 by convention, combined with the default, and duplicate keys are recovered once per pass. They run outside any
 request scope: never inject tenant-scoped databases, request-scoped services, or a current-user value. A provider
 resolution or enumeration failure is logged without preventing recovery for other providers. Providers are resolved
-again on each pass, so a failed constructor can recover on a later pass. Register them as singletons to preserve
-their intended lifetime. There is no periodic sweep by default;
+again on each pass, and failed construction is retried without waiting for another membership change. Register them
+as singletons to preserve their intended lifetime. There is no periodic sweep by default;
 `IJobsManager.Rehydrate()` remains available for an explicit pass.
 
 For a Studio-shaped host, the catalog is the set of **event stores × tenant namespaces**. This example uses a

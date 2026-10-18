@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Cratis.Orleans.Jobs.for_JobsRecovery;
 
-public class when_a_key_provider_cannot_be_resolved : given.a_recovery_participant
+public class when_a_key_provider_cannot_be_resolved_on_each_pass : given.a_recovery_participant
 {
     int _failedResolutions;
     ServiceProvider _services;
@@ -39,7 +39,7 @@ public class when_a_key_provider_cannot_be_resolved : given.a_recovery_participa
         await Publish(SiloStatus.Dead);
     }
 
-    [Fact] void should_retry_resolution_on_each_pass() => _failedResolutions.ShouldEqual(2);
+    [Fact] void should_retry_resolution_on_each_pass() => _failedResolutions.ShouldEqual(4);
     [Fact] void should_recover_the_other_providers() => _first.Received(1).Rehydrate();
     [Fact] void should_keep_watching_membership() => _second.Received(1).Rehydrate();
 
