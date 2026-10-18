@@ -19,7 +19,7 @@ public enum StartJobError
     CouldNotPrepareJobSteps = 1,
 
     /// <summary>
-    /// Some jobs failed to start.
+    /// Some job steps failed to start and count as failed; the job keeps running until its remaining steps finish.
     /// </summary>
     FailedStartingSomeJobSteps = 2,
 

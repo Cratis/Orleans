@@ -117,6 +117,7 @@ public class TenantJobs(IJobs jobs)
 Start returns the job identity only when the job accepts the request; inspect `StartJobError` on refusal.
 Success means started, not completed. If you supply an identity with `Start(key, jobId, request)`, duplicate
 starts retain the job's existing refusal behavior rather than starting another plan.
+`FailedStartingSomeJobSteps` means the job keeps running until its remaining steps finish, with steps that failed to start counted as failed; it does not mean the job did not start.
 
 Stop and delete read only the stored job type, so an unreadable request from a newer release does not hide
 which release owns the job. Match their nested result records:
