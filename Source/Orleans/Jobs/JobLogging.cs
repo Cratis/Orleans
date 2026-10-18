@@ -200,6 +200,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Warning, "Job could not be stopped because the stop was not persisted; it was left as it was")]
     internal static partial void FailedStoppingJobBecauseItWasNotPersisted(this ILogger<IJob> logger, Exception exception);
 
+    [LoggerMessage(LogLevel.Warning, "Job could not be removed because the removal was not persisted; it was left as it was")]
+    internal static partial void FailedRemovingJobBecauseItWasNotPersisted(this ILogger<IJob> logger, Exception exception);
+
     [LoggerMessage(LogLevel.Debug, "Ignoring an outcome of step {StepId} attempt {Attempt} that was already accounted for")]
     internal static partial void IgnoringDuplicateOutcome(this ILogger<IJob> logger, JobStepId stepId, int attempt);
 

@@ -404,8 +404,20 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
 
             _logger.Removing();
+
+            // A removal that is not durable must not stop steps or be reported as accepted.
+            var written = await WriteOrUndo(() => StatusChanged(JobStatus.Removing));
+            if (written.TryGetException(out var writeException))
+            {
+                _logger.FailedRemovingJobBecauseItWasNotPersisted(writeException);
+
+                // The write may have reached storage despite its failed acknowledgement. A fresh activation
+                // must read the durable outcome rather than serve this activation's restored state.
+                DeactivateOnIdleDuringShutdown();
+                return RemoveJobError.CouldNotPersistRemoval;
+            }
+
             DisposeStageAdmissionTimer();
-            _ = await WriteStatusChanged(JobStatus.Removing);
             await AccountForStepsThatNeverStarted();
 
             // Do not call OnStopped here because it should be called after all steps have been stopped

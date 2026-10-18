@@ -132,6 +132,7 @@ An unknown type can belong to a newer release, or to a removed job. Neither oper
 changes state in that case: route the operation to a release that knows the type. Storage exceptions and
 grain-call exceptions propagate; they are not reported as stopped or deleted. Delete preserves the manager's
 removal rules: it calls the job's `Remove`, including stopping its steps, and a completed job can refuse.
+If the removal cannot be persisted, it is refused with `RemoveJobError.CouldNotPersistRemoval` and can be retried.
 Acceptance does not promise that every step has already finished its stop/removal callback. These result
 records stay local; they are not serialized across grains. Third-party storage providers should override
 `IJobStorage.GetJobType` with a metadata-only read; its compatibility fallback reads the full job and can

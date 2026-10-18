@@ -22,4 +22,9 @@ public enum RemoveJobError
     /// Job is already being removed.
     /// </summary>
     JobIsAlreadyBeingRemoved = 2,
+
+    /// <summary>
+    /// The removal could not be persisted, so the job was left as it was.
+    /// </summary>
+    CouldNotPersistRemoval = 3,
 }
