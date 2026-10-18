@@ -150,7 +150,7 @@ jobs:
     # job succeeds, the publish job is skipped for want of should-publish, and the whole run reports green. Fail
     # instead, so a release that did not happen cannot be mistaken for one that did. workflow_dispatch is excluded
     # because a manual run may legitimately resolve to no publish. A pull request labelled no-release published
-    # nothing on purpose - it changed no shipped behavior - and verify-semver-label guarantees the label is a
+    # nothing on purpose - it changed no shipped behavior - and verify-pull-request-policy guarantees the label is a
     # deliberate choice rather than an omission, which is what makes it safe to trust here.
     if: always() && github.event_name == 'push' && needs.release.result == 'success' && needs.release.outputs.publish != 'true'
     runs-on: ubuntu-latest
@@ -160,5 +160,5 @@ jobs:
     steps:
       - name: Report that nothing was published
         run: |
-          echo "::error::The release action reported should-publish: false for a merge to main, so no packages were published and no release was cut. The usual cause is a missing major, minor or patch label - see verify-semver-label."
+          echo "::error::The release action reported should-publish: false for a merge to main, so no packages were published and no release was cut. The usual cause is a missing major, minor or patch label - see verify-pull-request-policy."
           exit 1
