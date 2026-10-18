@@ -11,8 +11,26 @@ public sealed class RecoveryJob(RecoverySignals signals, ILocalSiloDetails local
     public Task<SiloAddress> Silo() => Task.FromResult(local.SiloAddress);
     public Task<JobState> Inspect() => Task.FromResult(State);
 
-    protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryRequest request) =>
-        Task.FromResult<IImmutableList<JobStepDetails>>([CreateStep<IRecoveryStep>(request)]);
+    protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryRequest request)
+    {
+        Interlocked.Increment(ref signals.PlanCalls);
+        return Task.FromResult<IImmutableList<JobStepDetails>>([CreateStep<IRecoveryStep>(request)]);
+    }
+
+    protected override async Task OnBeforeStartingJobSteps()
+    {
+        Interlocked.Increment(ref signals.StartHookCalls);
+        if (signals.HoldFirstStart && signals.StartEntered.TrySetResult())
+        {
+            await signals.ReleaseStart.Task;
+        }
+    }
+
+    protected override Task OnBeforeDispatchingJobSteps(JobStepDispatchContext context)
+    {
+        signals.DispatchContexts.Enqueue(context);
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnBeforeResumingJobSteps()
     {

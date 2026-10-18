@@ -17,6 +17,12 @@ public sealed class RecoverySignals(string database)
     public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource StepStopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool HoldFirstStart { get; set; }
+    public int PlanCalls;
+    public int StartHookCalls;
+    public ConcurrentQueue<JobStepDispatchContext> DispatchContexts { get; } = new();
+    public TaskCompletionSource StartEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseStart { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool HoldFirstResume { get; set; }
     public TaskCompletionSource ResumeEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseResume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
