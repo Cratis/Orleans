@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace Cratis.Orleans.Jobs;
 
 /// <summary>
-/// Resolves singleton catalogs independently per pass, isolating constructor failures from other catalogs.
+/// Resolves singleton catalogs independently per pass, deferring failed construction for recovery retries.
 /// </summary>
 /// <param name="providers">Catalog types and their singleton resolvers.</param>
 /// <param name="logger">The recovery logger.</param>
@@ -29,7 +29,7 @@ internal sealed class JobsManagerKeyProviders(
             catch (Exception exception)
             {
                 logger.KeyProviderFailed(exception, type);
-                continue;
+                provider = new DeferredJobsManagerKeys(type, resolve, logger);
             }
             yield return provider;
         }
@@ -37,4 +37,22 @@ internal sealed class JobsManagerKeyProviders(
 
     /// <inheritdoc/>
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    sealed class DeferredJobsManagerKeys(Type type, Func<IJobsManagerKeys> resolve, ILogger<JobsRecovery> logger) : IJobsManagerKeys
+    {
+        public async Task<IEnumerable<JobsManagerKey>> GetKeys(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return await resolve().GetKeys(cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Recovery sees the adapter's type; retain the host provider's identity in diagnostics too.
+                logger.KeyProviderFailed(exception, type);
+                throw;
+            }
+        }
+    }
 }
