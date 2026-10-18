@@ -630,6 +630,9 @@ public class JobsManager(
             case RemoveJobError.JobIsAlreadyBeingRemoved:
                 logger.JobIsAlreadyBeingRemoved(jobId);
                 break;
+            case RemoveJobError.CouldNotPersistRemoval:
+                logger.FailedToDeleteJob(jobId);
+                break;
             default:
                 logger.FailedToRemoveJob(jobId);
                 break;
