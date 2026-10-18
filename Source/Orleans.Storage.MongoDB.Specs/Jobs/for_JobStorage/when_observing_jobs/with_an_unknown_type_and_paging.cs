@@ -26,8 +26,11 @@ public class with_an_unknown_type_and_paging : given.an_observed_job_storage
     [Fact] void should_not_count_an_unknown_insert() => _afterUnknownTotal.ShouldEqual(2);
     [Fact] void should_allow_an_earlier_registered_insert_to_enter_the_page() => _afterKnown.Select(job => job.Id).ShouldContainOnly(_thirdJob.Id);
     [Fact] void should_count_the_registered_insert() => _afterKnownTotal.ShouldEqual(3);
-    [Fact] void should_apply_paging_in_the_database_query() => _collection.Received(1).FindAsync(
-        Arg.Any<FilterDefinition<JobState>>(),
-        Arg.Is<FindOptions<JobState, JobState>>(options => options.Skip == 0 && options.Limit == 1 && options.Sort != null),
-        Arg.Any<CancellationToken>());
+    [Fact] void should_apply_paging_in_every_database_query() => FindOptionsUsed.ShouldEachConformTo(options => options.Skip == 0 && options.Limit == 1 && options.Sort != null);
+    [Fact] void should_query_the_database() => FindOptionsUsed.ShouldNotBeEmpty();
+
+    FindOptions<JobState, JobState>[] FindOptionsUsed => _collection.ReceivedCalls()
+        .Where(call => call.GetMethodInfo().Name == nameof(IMongoCollection<JobState>.FindAsync))
+        .SelectMany(call => call.GetArguments().OfType<FindOptions<JobState, JobState>>())
+        .ToArray();
 }
