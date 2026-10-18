@@ -47,4 +47,9 @@ public enum StartJobError
     /// A registered <see cref="IJobAdmission"/> refused the job, so it did not start.
     /// </summary>
     NotAdmitted = 7,
+
+    /// <summary>
+    /// A step request cannot round-trip with the JSON serializer options used for durable recovery.
+    /// </summary>
+    InvalidStepPlan = 8,
 }

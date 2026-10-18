@@ -17,6 +17,7 @@ public sealed class RecoverySignals(string database)
     public TaskCompletionSource Completed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource Stopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource StepStopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public ConcurrentQueue<JobStepId> PerformerSteps { get; } = new();
     public bool HoldFirstStart { get; set; }
     public int PlanCalls;
     public int StartHookCalls;

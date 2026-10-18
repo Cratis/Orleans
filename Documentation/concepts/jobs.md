@@ -28,7 +28,13 @@ rather than a spinner: the total is known up front, and each step reports its ow
 The job saves the complete plan, including step identities, stages, grain types and preparation requests,
 before preparing any step. Recovery reuses that plan; it never calls `PrepareSteps` again. Preparation
 requests must round-trip with the host's `JsonSerializerOptions` (or the default Cratis JSON converters
-when none are registered), because the plan retains each request's concrete type and JSON payload.
+when none are registered), because the plan retains each request's concrete type and JSON payload. Start
+validates that each request can be read back without changing its JSON representation; an invalid request
+returns `StartJobError.InvalidStepPlan` before any step is prepared. This validation does not guarantee
+semantic equivalence for arbitrary polymorphic members; configure converters for those request types.
+The plan is removed in the write that makes `Running` durable, so later progress writes and job listings
+do not retain all preparation requests. Saved plans, including empty plans, are excluded from dead-job
+preparation cleanup even after a long outage.
 
 ## Initialize before dispatch on start and resume
 

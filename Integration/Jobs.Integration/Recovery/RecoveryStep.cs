@@ -32,6 +32,7 @@ public sealed class RecoveryStep(
     {
         var silo = local.SiloAddress;
         signals.Performers.Enqueue(silo);
+        signals.PerformerSteps.Enqueue(currentState.Id.JobStepId);
         if (signals.FirstEntry.TrySetResult(silo))
         {
             // Deliberately ignore cancellation: killing an in-process silo must not let its old performer

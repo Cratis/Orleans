@@ -49,7 +49,8 @@ public class when_the_silo_dies_in_the_start_hook : Specification
     {
         _survivor.ShouldNotEqual(_fixture.VictimAddress);
         _state.Status.ShouldEqual(JobStatus.CompletedSuccessfully);
-        _state.StepPlan!.Single().Id.ShouldEqual(_plannedId);
+        _fixture.Signals.PerformerSteps.Single().ShouldEqual(_plannedId);
+        _state.StepPlan.ShouldBeNull();
         _state.Progress.SuccessfulSteps.ShouldEqual(1);
         _fixture.Signals.PlanCalls.ShouldEqual(1);
         _fixture.Signals.StartHookCalls.ShouldEqual(1);

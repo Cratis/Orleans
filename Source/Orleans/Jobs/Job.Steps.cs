@@ -289,7 +289,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             _logger.ErrorPreparingJobSteps(ex);
             _ = await WriteStatusChanged(JobStatus.Failed, ex);
-            return StartJobError.Unknown;
+            return ex is JobStepRequestCannotRoundTrip ? StartJobError.InvalidStepPlan : StartJobError.Unknown;
         }
     }
 
@@ -326,15 +326,14 @@ public abstract partial class Job<TRequest, TJobState>
             }
 
             _ = await HandleCompletionResult(await HandleCompletion());
-            if (State.Status is JobStatus.StartingSteps)
+            if (State.Status is JobStatus.StartingSteps && !await TryEnterRunning())
             {
-                _ = await WriteStatusChanged(JobStatus.Running);
+                return StartJobError.Unknown;
             }
             return startJobStepsError;
         }
 
-        _ = await WriteStatusChanged(JobStatus.Running);
-        return Result<StartJobError>.Success();
+        return await TryEnterRunning() ? Result<StartJobError>.Success() : StartJobError.Unknown;
     }
 
     async Task<Result<bool, OneOf.Types.None>> TryPrepareAllJobSteps(ReadOnlyDictionary<JobStepId, JobStepGrainAndRequest> jobStepRequests)

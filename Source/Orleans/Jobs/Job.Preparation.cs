@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs.Stages;
 using Cratis.Orleans.Serialization;
@@ -19,13 +20,39 @@ public abstract partial class Job<TRequest, TJobState>
     JsonSerializerOptions StepPlanSerializerOptions =>
         ServiceProvider.GetService<JsonSerializerOptions>() ?? CratisJsonSerializer.CreateSerializerOptions();
 
-    List<PlannedJobStep> SaveStepPlan(IImmutableList<JobStepDetails> steps) =>
-        steps.Select(step => new PlannedJobStep(
-            step.Id,
-            step.Type,
-            step.Stage,
-            step.Request.GetType().AssemblyQualifiedName!,
-            JsonSerializer.Serialize(step.Request, step.Request.GetType(), StepPlanSerializerOptions))).ToList();
+    List<PlannedJobStep> SaveStepPlan(IImmutableList<JobStepDetails> steps) => steps.Select(SavePlannedStep).ToList();
+
+    PlannedJobStep SavePlannedStep(JobStepDetails step)
+    {
+        try
+        {
+            var type = step.Request.GetType();
+            var json = JsonSerializer.Serialize(step.Request, type, StepPlanSerializerOptions);
+            var restored = JsonSerializer.Deserialize(json, type, StepPlanSerializerOptions);
+            var restoredJson = JsonSerializer.Serialize(restored, type, StepPlanSerializerOptions);
+            if (restored is null || !JsonNode.DeepEquals(JsonNode.Parse(json), JsonNode.Parse(restoredJson)))
+            {
+                throw new JobStepRequestCannotRoundTrip(step.Id);
+            }
+            return new(step.Id, step.Type, step.Stage, type.AssemblyQualifiedName!, json);
+        }
+        catch (Exception exception) when (exception is not JobStepRequestCannotRoundTrip)
+        {
+            throw new JobStepRequestCannotRoundTrip(step.Id, exception);
+        }
+    }
+
+    async Task<bool> TryEnterRunning()
+    {
+        var plan = State.StepPlan;
+        State.StepPlan = null;
+        if (await TryWriteStatusChanged(JobStatus.Running))
+        {
+            return true;
+        }
+        State.StepPlan = plan;
+        return false;
+    }
 
     async Task RunDispatchHook(bool initializationMayBeIncomplete)
     {
@@ -139,7 +166,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             return ResumeJobSuccess.JobIsCompleted;
         }
-        if (!await TryWriteStatusChanged(JobStatus.Running))
+        if (!await TryEnterRunning())
         {
             return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
         }

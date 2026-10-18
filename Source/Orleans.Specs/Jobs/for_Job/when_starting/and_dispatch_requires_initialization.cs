@@ -21,5 +21,6 @@ public class and_dispatch_requires_initialization : given.a_job_with_a_durable_p
     [Fact] void should_start() => Assert.True(_start.IsSuccess, string.Join("; ", _job.CurrentState.StatusChanges.SelectMany(change => change.ExceptionMessages)));
     [Fact] void should_run_the_hook_on_clean_start() => _job.DispatchContexts.Single().InitializationMayBeIncomplete.ShouldBeFalse();
     [Fact] void should_save_the_plan_before_preparation() => _job.WrittenStates.First(state => state.Status is JobStatus.PreparingSteps).StepPlan!.Count.ShouldEqual(3);
+    [Fact] void should_release_the_plan_in_the_running_write() => _job.WrittenStates.Last(state => state.Status is JobStatus.Running).StepPlan.ShouldBeNull();
     [Fact] void should_dispatch_after_initialization() => _dispatched.ShouldEqual(new[] { _firstId, _secondId });
 }
