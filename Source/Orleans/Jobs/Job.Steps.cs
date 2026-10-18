@@ -190,7 +190,7 @@ public abstract partial class Job<TRequest, TJobState>
         }
         var needsToWriteState = completionResult.AsT0 switch
         {
-            HandleCompletionSuccess.ClearedState => false,
+            HandleCompletionSuccess.ClearedState or HandleCompletionSuccess.NotClearedState => false,
             _ => true
         };
         if (!needsToWriteState)

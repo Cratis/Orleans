@@ -47,5 +47,7 @@ public class and_the_last_live_step_deleted_its_state_before_reporting : given.t
     [Fact] void should_complete_exactly_once() => _job.AllStepsCompletedCount.ShouldEqual(1);
     [Fact] void should_count_one_success() => _successfulSteps.ShouldEqual(1);
     [Fact] void should_preserve_the_planned_step_count() => _totalSteps.ShouldEqual(1);
-    [Fact] void should_not_write_a_stray_document_after_clearing() => _writes.ShouldEqual(1);
+    [Fact] void should_write_the_resume_and_terminal_statuses() => _writes.ShouldEqual(2);
+    [Fact] void should_clear_the_job_once() => _silo.StorageStats<given.SomeJob, given.SomeJobState>().Clears.ShouldEqual(1);
+    [Fact] void should_not_write_a_stray_document_after_clearing() => _silo.StorageManager.GetStorage<given.SomeJobState>(typeof(given.SomeJob).FullName!).RecordExists.ShouldBeFalse();
 }

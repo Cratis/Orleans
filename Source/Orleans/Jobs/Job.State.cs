@@ -159,6 +159,7 @@ public abstract partial class Job<TRequest, TJobState>
         // Only a running job is watched; the watchdog checks the status again whenever it ticks.
         if (status is JobStatus.Running)
         {
+            ResetCompletionFinalization();
             EnsureWatchdog(WatchdogInterval);
         }
         else

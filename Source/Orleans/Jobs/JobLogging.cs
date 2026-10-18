@@ -146,6 +146,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Debug, "Not all steps was completed successfully")]
     public static partial void AllStepsNotCompletedSuccessfully(this ILogger<IJob> logger);
 
+    [LoggerMessage(LogLevel.Warning, "Job failed clearing its durable terminal state on attempt {Attempt}; after two attempts any remaining record is left to retention cleanup")]
+    internal static partial void FailedClearingCompletedState(this ILogger<IJob> logger, Exception exception, int attempt);
+
     [LoggerMessage(LogLevel.Information, "Job ignored a stop of job step {JobStepId} from earlier execution {Generation}; the step stays tracked")]
     internal static partial void IgnoringStopOfEarlierExecution(this ILogger<IJob> logger, JobStepId jobStepId, long generation);
 
