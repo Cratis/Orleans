@@ -460,6 +460,7 @@ public abstract partial class Job<TRequest, TJobState>
     Task UnsubscribeJobStep(JobStepId stepId)
     {
         _observers?.Unsubscribe(stepId);
+        ForgetStepNotification(stepId);
         return Task.CompletedTask;
     }
 }
