@@ -737,6 +737,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             {
                 await ClearStateAsync();
                 ClearStepNotificationRetries();
+                ClearRemovalRetry();
                 DeactivateOnIdleDuringShutdown();
                 return HandleCompletionSuccess.ClearedState;
             }
@@ -752,6 +753,9 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         catch (Exception ex)
         {
             _logger.Failed(ex);
+
+            // Every step has reported, so nothing else will finish the removal until another Remove or a restart.
+            ScheduleRemovalRetry();
             return JobError.UnknownError;
         }
     }

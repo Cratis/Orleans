@@ -81,6 +81,52 @@ public abstract partial class Job<TRequest, TJobState>
         }
     }
 
+    /// <summary>
+    /// Captures what is needed to tell a step's current run that its job is removed, before the stop of an earlier
+    /// execution unsubscribes it.
+    /// </summary>
+    /// <param name="stepId">The <see cref="JobStepId"/> of the step whose earlier execution stopped.</param>
+    /// <returns>The <see cref="RemovalNotice"/> to send once the stop is handled, or null when there is nothing to tell.</returns>
+    /// <remarks>
+    /// The subscription is keyed by the step, not by its run, so handling the old stop unsubscribes the current run and
+    /// cancels any retry of its removal notice. The generation is taken now because finishing the removal clears the state.
+    /// </remarks>
+    RemovalNotice? RemovalNoticeForCurrentRun(JobStepId stepId)
+    {
+        if (State.Status is not JobStatus.Removing || _observers?.Observers.TryGetValue(stepId, out var observer) != true)
+        {
+            return null;
+        }
+        return new(stepId, observer!, ExecutionGeneration());
+    }
+
+    async Task SendRemovalNotice(RemovalNotice? notice)
+    {
+        if (notice is null)
+        {
+            return;
+        }
+
+        _logger.NotifyingCurrentRunOfRemoval(notice.StepId);
+        using var generation = JobExecutionGeneration.Carry(notice.Generation);
+        try
+        {
+            await notice.Observer.OnJobRemoved();
+        }
+        catch (Exception ex)
+        {
+            _logger.FailedNotifyingJobStep(ex, notice.StepId, removing: true);
+
+            // Still removing: the run's own report has not arrived, so keep retrying it like any other removal notice.
+            if (State.Status is JobStatus.Removing && _observers?.Observers.ContainsKey(notice.StepId) == false)
+            {
+                _observers.Subscribe(notice.StepId, notice.Observer);
+                _failedStepNotifications.Add(notice.StepId);
+                ArmStepNotificationRetry();
+            }
+        }
+    }
+
     void ClearStepNotificationRetries()
     {
         _stepNotificationRetryTimer?.Dispose();

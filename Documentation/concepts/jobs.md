@@ -740,11 +740,32 @@ counted in `JobState.StoppedStepsCounted`, together with the count. A report tha
 activation is therefore not counted twice. Resuming begins a new execution with none counted. A custom job storage
 provider must persist that property. A job saved by a version without it reads with none counted.
 
+A step can have both a stop from an earlier execution and a run of the current one. Each step still counts once:
+
+- When the stop from the earlier execution is counted first and the current run then succeeds, or fails with no
+  attempt left, the job takes the stop back and counts the success or failure instead. The same write saves both,
+  so the removal finishes once every step has reported, not one report early.
+- When the stop from the earlier execution is counted while the current run may still be running, the job tells
+  that run once, in the current execution, that the job is removed. The run stops, reports its stop - which is
+  already counted - and deletes its own record, even when that earlier stop was the last report and the job is
+  already gone. If the job cannot reach the run while it is still removing, it keeps retrying the notice. If that
+  earlier stop already finished the removal, the job is gone and does not retry, so the run's record can stay behind.
+
+A step hosted by a silo older than v1.20.0 reports no generation, so its stop is never taken for one from an
+earlier execution, and its current run is not told again.
+
 When finishing the removal fails - `OnStopped` throws, clearing the job fails, or saving the count fails - the job
-answers the step's report with an error, so the step's next report runs the finish again. Calling `Remove()` on a job
-that is already being removed also runs it again once no step is left to report. It answers
-`RemoveJobError.JobIsAlreadyBeingRemoved`, or `RemoveJobError.Unknown` when the finish failed again. `OnStopped`
-can therefore run more than once for a removal whose finish failed, so it must tolerate that.
+answers the step's report with an error, so the step's next report runs the finish again. Once every step has
+reported, no report is left to do that, so the job also retries the finish itself on a timer: after 1 second,
+doubling the delay up to 60 seconds, until the job is cleared. The timer keeps the job's activation alive between
+attempts and does not use reminders. If the silo goes away, rehydration finishes the removal instead. Calling
+`Remove()` on a job that is already being removed also runs the finish again once no step is left to report. It
+answers `RemoveJobError.JobIsAlreadyBeingRemoved`, or `RemoveJobError.Unknown` when the finish failed again.
+`OnStopped` can therefore run more than once for a removal whose finish failed, so it must tolerate that. A job
+whose `OnStopped` always throws keeps its activation alive and retries every minute.
+
+During a rolling upgrade, a job activated on a silo older than this release does not retry the finish on a timer;
+it finishes on the next report, `Remove()`, or rehydration, as before.
 
 A registered [`IJobAdmission`](#admit-or-refuse-a-jobs-execution) is asked before a rehydrated job resumes. A refusal stops
 the job, an exception or timeout leaves it as it was, and rehydration asks again only on its next pass.

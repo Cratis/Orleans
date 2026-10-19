@@ -48,6 +48,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
     public int AllStepsCompletedCount;
     public int StoppedCount;
+    public bool OnStoppedThrows;
     public bool FailClears;
     public int ClearAttempts;
     public bool FailWrites;
@@ -113,7 +114,9 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override Task OnStopped()
     {
         StoppedCount++;
-        return Task.CompletedTask;
+        return OnStoppedThrows
+            ? Task.FromException(new InvalidOperationException("The stopped hook failed"))
+            : Task.CompletedTask;
     }
 
     protected override async Task WriteStateAsync()

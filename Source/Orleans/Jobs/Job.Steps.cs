@@ -21,12 +21,13 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        var (ignored, attempt) = await IgnoreStepOutcome(stepId, stopped: false);
+        var (ignored, attempt, _) = await IgnoreStepOutcome(stepId, stopped: false);
         if (ignored)
         {
             return Result.Success<JobError>();
         }
         _logger.StepSuccessfullyCompleted(stepId);
+        UncountStopDuringRemoval(stepId);
         OutcomeCounted(stepId);
         _acceptedOutcomes.Add((stepId, attempt));
         _attemptsToRun.Remove(stepId);
@@ -39,7 +40,8 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepStopped(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        if ((await IgnoreStepOutcome(stepId, stopped: true)).Ignored)
+        var (ignored, _, ofEarlierExecution) = await IgnoreStepOutcome(stepId, stopped: true);
+        if (ignored)
         {
             return Result.Success<JobError>();
         }
@@ -51,14 +53,17 @@ public abstract partial class Job<TRequest, TJobState>
                 : Result.Success<JobError>();
         }
         _logger.StepStopped(stepId);
-        return await PerformStepEventHandling(stepId, jobStepResult, stopDuringRemoval: State.Status is JobStatus.Removing);
+        var removalNotice = ofEarlierExecution ? RemovalNoticeForCurrentRun(stepId) : null;
+        var result = await PerformStepEventHandling(stepId, jobStepResult, stopDuringRemoval: State.Status is JobStatus.Removing);
+        await SendRemovalNotice(removalNotice);
+        return result;
     }
 
     /// <inheritdoc/>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        var (ignored, attempt) = await IgnoreStepOutcome(stepId, stopped: false);
+        var (ignored, attempt, _) = await IgnoreStepOutcome(stepId, stopped: false);
         if (ignored)
         {
             return Result.Success<JobError>();
@@ -74,6 +79,7 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         _logger.StepFailed(stepId);
+        UncountStopDuringRemoval(stepId);
         OutcomeCounted(stepId);
         _attemptsToRun.Remove(stepId);
         State.Progress.FailedSteps++;
