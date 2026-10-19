@@ -43,6 +43,11 @@ public abstract partial class Job<TRequest, TJobState>
         {
             return Result.Success<JobError>();
         }
+        if (!_stopsCounted.Add(stepId))
+        {
+            _logger.IgnoringStopAlreadyCounted(stepId);
+            return Result.Success<JobError>();
+        }
         _logger.StepStopped(stepId);
         State.Progress.StoppedSteps++;
         return await PerformStepEventHandling(stepId, jobStepResult);
@@ -199,7 +204,11 @@ public abstract partial class Job<TRequest, TJobState>
         }
         var writeStateResult = await WriteState();
         return writeStateResult.Match(
-            _ => Result<JobError>.Success(),
+            _ =>
+            {
+                DeactivateIfOnlyActivatedToFinalizeStop();
+                return Result<JobError>.Success();
+            },
             ex =>
             {
                 _logger.FailedUpdatingStateAfterHandlingCompletion(ex);
@@ -252,7 +261,7 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.SuccessfulSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedSuccessfully);
         State.Progress.FailedSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedWithFailure or JobStepStatus.Failed);
         State.Progress.UnreachableSteps = steps.Count(_ => _.Status is JobStepStatus.Unreachable);
-        State.Progress.StoppedSteps = countStopped ? steps.Count(_ => _.Status is JobStepStatus.Stopped) : 0;
+        CountStopsFrom(countStopped ? steps : []);
         State.Progress.Stages = JobStages.Reconcile(steps, State.Progress.Stages);
         TrackStagesOf(steps);
         return steps;

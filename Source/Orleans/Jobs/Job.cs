@@ -334,6 +334,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             // Only a successful hook begins dispatch. Until then, late drained reports must stay accounted for.
             // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
             _accountedByDrain.Clear();
+            _stopsCounted.Clear();
             _started.Clear();
             _inFlight.Clear();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
@@ -378,7 +379,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return StopJobError.CouldNotPersistStop;
             }
 
-            _stoppedHookRan = false;
+            _deactivateOnceStopFinalized = false;
             DisposeStageAdmissionTimer();
             await AccountForStepsThatNeverStarted();
 
@@ -678,7 +679,11 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (State.Status is JobStatus.Stopped or JobStatus.Removing)
             {
                 await OnStopped();
-                _stoppedHookRan = State.Status is JobStatus.Stopped;
+                if (State.Status is JobStatus.Stopped)
+                {
+                    // Persisted by the write that follows completion handling, together with the rest of the stop.
+                    State.StopFinalized = true;
+                }
             }
 
             // Don't go to Complete if the job is Stopped, because it can be resumed or removed in the future.

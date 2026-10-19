@@ -141,6 +141,7 @@ public abstract partial class Job<TRequest, TJobState>
             .Select(step => step.Key)
             .ToList();
         State.Progress.StoppedSteps += neverStarted.Count;
+        _stopsCounted.UnionWith(neverStarted);
 
         // The next execution begins with an empty window.
         _started.Clear();

@@ -20,5 +20,7 @@ public class and_the_step_still_stopping_reports : given.a_job_whose_silo_went_a
 
     [Fact] void should_run_the_stopped_hook_once() => _job.StoppedCount.ShouldEqual(1);
     [Fact] void should_count_the_step_once() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(1);
+    [Fact] void should_record_the_stop_as_finalized() => _job.WrittenStates[^1].StopFinalized.ShouldBeTrue();
+    [Fact] void should_let_the_job_deactivate_once_finalized() => (Deactivations > 0).ShouldBeTrue();
     [Fact] void should_leave_the_job_stopped() => _job.CurrentState.Status.ShouldEqual(JobStatus.Stopped);
 }

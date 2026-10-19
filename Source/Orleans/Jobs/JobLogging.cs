@@ -215,6 +215,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Debug, "Ignoring an outcome of step {StepId} attempt {Attempt} that was already accounted for")]
     internal static partial void IgnoringDuplicateOutcome(this ILogger<IJob> logger, JobStepId stepId, int attempt);
 
+    [LoggerMessage(LogLevel.Debug, "Ignoring a stop of step {StepId} that was already counted")]
+    internal static partial void IgnoringStopAlreadyCounted(this ILogger<IJob> logger, JobStepId stepId);
+
     [LoggerMessage(LogLevel.Debug, "Starting {Count} more job steps to fill the window")]
     internal static partial void FillingWindow(this ILogger<IJob> logger, int count);
 

@@ -39,6 +39,13 @@ public class JobsManager(
     static readonly JobStatus[] _stoppingStatuses = [JobStatus.Stopped, JobStatus.Removing];
     static readonly JobStatus[] _rehydratedStatuses = [.. _interruptedStatuses, .. _stoppingStatuses];
     static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
+
+    /// <summary>
+    /// Whether a persisted job still needs rehydration. A stop whose stopped hook already ran is settled, and leaving it
+    /// alone keeps every historical stopped job out of memory.
+    /// </summary>
+    static readonly Func<JobState, bool> _needsRehydration = state => !(state.Status is JobStatus.Stopped && state.StopFinalized);
+
     CancellationTokenSource _rehydrationCancellation = null!;
     IDisposable? _deactivationSubscription;
     bool _deactivationNotificationsUnavailable;
@@ -346,7 +353,7 @@ public class JobsManager(
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     DelayDeactivation(Timeout.InfiniteTimeSpan);
-                    _rehydration = ResumeJobsInBackground(runningJobs, cancellationToken);
+                    _rehydration = ResumeJobsInBackground(runningJobs.Where(_needsRehydration), cancellationToken);
                     drainStarted = true;
                     return Task.CompletedTask;
                 },
@@ -421,7 +428,7 @@ public class JobsManager(
             await CleanupDeadJobs().WaitAsync(cancellationToken);
             var discovered = await _jobStorage!.GetJobs(_rehydratedStatuses).WaitAsync(cancellationToken);
             discovered.RethrowError();
-            runningJobs = discovered.AsT0;
+            runningJobs = discovered.AsT0.Where(_needsRehydration);
         }
     }
 
@@ -610,6 +617,10 @@ public class JobsManager(
             }
 
             // A stop or removal whose silo went away before its steps reported is finished, never resumed: the stop stands.
+            if (!_needsRehydration(currentState))
+            {
+                return false;
+            }
             if (_stoppingStatuses.Contains(currentState.Status))
             {
                 await (job as IJobStopFinalization ?? job.AsReference<IJobStopFinalization>()).FinalizeStop();

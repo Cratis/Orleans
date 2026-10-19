@@ -14,6 +14,8 @@ public class a_job_whose_silo_went_away_while_stopping : the_job
     protected JobStepId _stepId;
     protected Mock<ISomeJobStep> _step;
 
+    protected int Deactivations => _silo.GrainRuntime.Mock.Invocations.Count(invocation => invocation.Method.Name == nameof(IGrainRuntime.DeactivateOnIdle));
+
     void Establish()
     {
         _stepId = Guid.Parse("7d7d7d7d-0000-0000-0000-000000000001");

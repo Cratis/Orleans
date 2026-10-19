@@ -5,7 +5,7 @@ namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState> : IJobStopFinalization
 {
-    bool _stoppedHookRan;
+    bool _deactivateOnceStopFinalized;
 
     /// <inheritdoc/>
     public async Task FinalizeStop()
@@ -13,10 +13,18 @@ public abstract partial class Job<TRequest, TJobState> : IJobStopFinalization
         using var scope = _logger.BeginJobScope(JobId, JobKey);
         try
         {
+            if (IsStopFinalized())
+            {
+                // Rehydration activated this job only to finish its stop. There is nothing left to run, so it must
+                // not stay pinned in memory for as long as an active job is.
+                DeactivateOnIdleDuringShutdown();
+                return;
+            }
             if (!NeedsStopFinalization())
             {
                 return;
             }
+            _deactivateOnceStopFinalized = true;
 
             // Stop persists Stopped before its steps report, and the stopped hook runs only once they all have. A silo
             // that went away in between left a stop no one would ever finish, so the steps' own records decide.
@@ -55,7 +63,39 @@ public abstract partial class Job<TRequest, TJobState> : IJobStopFinalization
             return false;
         }
 
-        return !(State.Status is JobStatus.Stopped && _stoppedHookRan);
+        return !IsStopFinalized();
+    }
+
+    bool IsStopFinalized() => State.Status is JobStatus.Stopped && State.StopFinalized;
+
+    /// <summary>
+    /// Records durably that the stopped hook ran for the current stop.
+    /// </summary>
+    /// <returns>Awaitable task.</returns>
+    /// <remarks>
+    /// Rehydration leaves a finalized stop alone without activating the job. Should the write fail, the next
+    /// rehydration finalizes the stop once more, which is the safe side: the hook releases what the job holds.
+    /// </remarks>
+    async Task RecordStopFinalized()
+    {
+        State.StopFinalized = true;
+        if ((await WriteState()).TryGetException(out _))
+        {
+            return;
+        }
+        DeactivateIfOnlyActivatedToFinalizeStop();
+    }
+
+    /// <summary>
+    /// Lets a job that rehydration activated only to finish its stop deactivate once the finished stop is durable.
+    /// </summary>
+    void DeactivateIfOnlyActivatedToFinalizeStop()
+    {
+        if (_deactivateOnceStopFinalized && IsStopFinalized())
+        {
+            _deactivateOnceStopFinalized = false;
+            DeactivateOnIdleDuringShutdown();
+        }
     }
 
     async Task StopStepsThatHaveNotStopped()
@@ -85,7 +125,7 @@ public abstract partial class Job<TRequest, TJobState> : IJobStopFinalization
         try
         {
             await OnStopped();
-            _stoppedHookRan = true;
+            await RecordStopFinalized();
         }
         catch (Exception ex)
         {

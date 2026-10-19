@@ -1,12 +1,15 @@
 // Copyright (c) Cratis. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+using Cratis.Orleans.Storage.Jobs;
+
 namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
     readonly HashSet<JobStepId> _stepsToRestartAfterEarlierStop = [];
     readonly HashSet<JobStepId> _outcomesCounted = [];
+    readonly HashSet<JobStepId> _stopsCounted = [];
     IGrainTimer? _restartStepsTimer;
 
     /// <summary>
@@ -70,6 +73,29 @@ public abstract partial class Job<TRequest, TJobState>
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
     void OutcomeCounted(JobStepId stepId) => _outcomesCounted.Add(stepId);
+
+    /// <summary>
+    /// Counts the stopped steps of the current execution from the steps' own records, replacing what was counted.
+    /// </summary>
+    /// <param name="steps">The steps to count the stopped ones of.</param>
+    /// <remarks>
+    /// A stop is counted once per step, so a step counted here is not counted again when its own report arrives late.
+    /// </remarks>
+    void CountStopsFrom(IEnumerable<JobStepState> steps)
+    {
+        _stopsCounted.Clear();
+        _stopsCounted.UnionWith(steps.Where(step => step.Status is JobStepStatus.Stopped).Select(step => step.Id.JobStepId));
+        State.Progress.StoppedSteps = _stopsCounted.Count;
+    }
+
+    /// <summary>
+    /// Forgets the stops counted so far, as an execution that begins anew has none.
+    /// </summary>
+    void ForgetCountedStops()
+    {
+        _stopsCounted.Clear();
+        State.Progress.StoppedSteps = 0;
+    }
 
     bool IsDuplicateOutcome(JobStepId stepId, int attempt) =>
         _acceptedOutcomes.Contains((stepId, attempt)) ||
