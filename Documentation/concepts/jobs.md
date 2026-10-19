@@ -726,6 +726,26 @@ A custom job storage provider must persist that property. A job stopped by a ver
 finalized, so `OnStopped` runs once more for it on the first rehydration after the upgrade; it must tolerate that,
 as it already must for a drain that completes after its silo went away.
 
+### A removal finishes even when a report or the final step fails
+
+A step being removed deletes its own record once the job has stored its stop. Until then it keeps its record and
+reports the stop again, waiting `JobsOptions.StepDeliveryRetryDelay` before the second report and doubling the wait
+up to `JobsOptions.MaxStepDeliveryRetryDelay`. Unlike other outcomes, this report is not limited by
+`StepDeliveryMaxAttempts`: it continues while the step's activation lives, and a job that no longer exists answers
+that there is nothing left to report. A stop from an execution before a resume is counted too, because a job being
+removed has no execution left to start the step in again.
+
+The job counts each step's stop once per execution, however often the step reports it, and records which steps it
+counted in `JobState.StoppedStepsCounted`, together with the count. A report that arrives again in a later
+activation is therefore not counted twice. Resuming begins a new execution with none counted. A custom job storage
+provider must persist that property. A job saved by a version without it reads with none counted.
+
+When finishing the removal fails - `OnStopped` throws, clearing the job fails, or saving the count fails - the job
+answers the step's report with an error, so the step's next report runs the finish again. Calling `Remove()` on a job
+that is already being removed also runs it again once no step is left to report. It answers
+`RemoveJobError.JobIsAlreadyBeingRemoved`, or `RemoveJobError.Unknown` when the finish failed again. `OnStopped`
+can therefore run more than once for a removal whose finish failed, so it must tolerate that.
+
 A registered [`IJobAdmission`](#admit-or-refuse-a-jobs-execution) is asked before a rehydrated job resumes. A refusal stops
 the job, an exception or timeout leaves it as it was, and rehydration asks again only on its next pass.
 
