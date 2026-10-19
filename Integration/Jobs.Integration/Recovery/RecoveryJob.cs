@@ -34,6 +34,10 @@ public sealed class RecoveryJob(RecoverySignals signals, ILocalSiloDetails local
 
     protected override async Task OnBeforeResumingJobSteps()
     {
+        if (signals.ThrowOnResume)
+        {
+            throw new RecoveryResumeRejected();
+        }
         if (signals.HoldFirstResume && signals.ResumeEntered.TrySetResult())
         {
             // Hold the first resume after Running is durable but before any step is restarted.
@@ -49,6 +53,7 @@ public sealed class RecoveryJob(RecoverySignals signals, ILocalSiloDetails local
 
     protected override Task OnStopped()
     {
+        Interlocked.Increment(ref signals.StoppedCalls);
         signals.Stopped.TrySetResult();
         return Task.CompletedTask;
     }

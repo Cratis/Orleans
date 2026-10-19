@@ -28,7 +28,7 @@ public class when_rehydrating : given.the_manager
         await WaitForRehydration();
     }
 
-    [Fact] void should_get_jobs_that_are_running_preparing_or_preparing_steps() => _jobStorage.Received(1).GetJobs(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps);
+    [Fact] void should_get_jobs_that_are_interrupted_stopped_or_being_removed() => _jobStorage.Received(1).GetJobs(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Stopped, JobStatus.Removing);
     [Fact] void should_resume_first_job() => _firstJob.Verify(_ => _.Resume(), Times.Once);
     [Fact] void should_resume_second_job() => _secondJob.Verify(_ => _.Resume(), Times.Once);
 }

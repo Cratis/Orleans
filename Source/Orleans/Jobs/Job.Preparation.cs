@@ -123,7 +123,7 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.SuccessfulSteps = plan.Count(step => !byId.TryGetValue(step.Id, out var state) || state.Status is JobStepStatus.CompletedSuccessfully);
         State.Progress.FailedSteps = steps.Count(step => step.Status is JobStepStatus.Failed or JobStepStatus.CompletedWithFailure);
         State.Progress.UnreachableSteps = steps.Count(step => step.Status is JobStepStatus.Unreachable);
-        State.Progress.StoppedSteps = 0;
+        ForgetCountedStops();
         State.Progress.Stages = JobStages.Plan(plan.Select(step => step.Stage));
         foreach (var step in plan)
         {

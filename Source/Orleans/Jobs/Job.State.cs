@@ -85,6 +85,7 @@ public abstract partial class Job<TRequest, TJobState>
         var status = State.Status;
         var statusChanges = State.StatusChanges.Count;
         var drainPending = State.DrainPending;
+        var stopFinalized = State.StopFinalized;
         change();
         var written = await WriteState();
         if (written.TryGetException(out _))
@@ -95,6 +96,7 @@ public abstract partial class Job<TRequest, TJobState>
             }
             State.Status = status;
             State.DrainPending = drainPending;
+            State.StopFinalized = stopFinalized;
         }
         return written;
     }
@@ -144,6 +146,9 @@ public abstract partial class Job<TRequest, TJobState>
             ExceptionMessages = exception?.GetAllMessages() ?? []
         });
         State.Status = status;
+
+        // A new status is a new stop or no stop at all; either way no stopped hook has run for it yet.
+        State.StopFinalized = false;
 
         // Only a running job is watched; the watchdog checks the status again whenever it ticks.
         if (status is JobStatus.Running)

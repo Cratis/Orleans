@@ -55,6 +55,15 @@ public class JobState
     public bool DrainPending { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the current stop of the job has been finalized by running its stopped hook.
+    /// </summary>
+    /// <remarks>
+    /// Any change of status clears it, so every stop is finalized once. A job written before this was introduced reads
+    /// as not finalized, so a stopped job left behind by a silo that went away is finalized once when it is rehydrated.
+    /// </remarks>
+    public bool StopFinalized { get; set; }
+
+    /// <summary>
     /// Gets or sets the complete step plan saved before preparing any step.
     /// </summary>
     /// <remarks>

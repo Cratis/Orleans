@@ -26,4 +26,5 @@ public class NullJobWithSomeRequest : INullJobWithSomeRequest
     public Task<Result<JobError>> SetTotalSteps(int totalSteps) => Task.FromResult(Result.Success<JobError>());
     public Task Subscribe(IJobObserver observer) => Task.CompletedTask;
     public Task Unsubscribe(IJobObserver observer) => Task.CompletedTask;
+    public Task FinalizeStop() => Task.CompletedTask;
 }

@@ -29,6 +29,12 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Warning, "Job was stopped with all of its steps already completed - finalizing it instead of leaving it stopped")]
     public static partial void FinalizingStoppedJobWithNothingLeftToRun(this ILogger<IJob> logger);
 
+    [LoggerMessage(LogLevel.Information, "Job left {Status} with all of its steps stopped - finalizing its stop")]
+    public static partial void FinalizingStopAfterItsSiloWentAway(this ILogger<IJob> logger, JobStatus status);
+
+    [LoggerMessage(LogLevel.Information, "Job is still waiting for {Count} steps to stop - telling them to stop again")]
+    public static partial void StopIsWaitingForSteps(this ILogger<IJob> logger, int count);
+
     [LoggerMessage(LogLevel.Warning, "Job failed recounting its progress from its job steps")]
     public static partial void FailedReconcilingProgressFromJobSteps(this ILogger<IJob> logger, Exception ex);
 
@@ -208,6 +214,9 @@ public static partial class JobLogMessages
 
     [LoggerMessage(LogLevel.Debug, "Ignoring an outcome of step {StepId} attempt {Attempt} that was already accounted for")]
     internal static partial void IgnoringDuplicateOutcome(this ILogger<IJob> logger, JobStepId stepId, int attempt);
+
+    [LoggerMessage(LogLevel.Debug, "Ignoring a stop of step {StepId} that was already counted")]
+    internal static partial void IgnoringStopAlreadyCounted(this ILogger<IJob> logger, JobStepId stepId);
 
     [LoggerMessage(LogLevel.Debug, "Starting {Count} more job steps to fill the window")]
     internal static partial void FillingWindow(this ILogger<IJob> logger, int count);

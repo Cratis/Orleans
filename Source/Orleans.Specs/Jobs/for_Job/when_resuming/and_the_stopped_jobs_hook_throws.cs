@@ -9,13 +9,19 @@ public class and_the_stopped_jobs_hook_throws : given.a_stopped_job_rejecting_re
 {
     JobStatus _statusSeenByHook;
     JobStatus _persistedStatusSeenByHook;
+    bool _persistedStopFinalizedSeenByHook;
 
-    void Establish() => _job.BeforeResuming = () =>
+    void Establish()
     {
-        _statusSeenByHook = _job.CurrentState.Status;
-        _persistedStatusSeenByHook = _job.WrittenStates[^1].Status;
-        return Task.FromException(new InvalidOperationException("Resume was rejected"));
-    };
+        _job.CurrentState.StopFinalized = true;
+        _job.BeforeResuming = () =>
+        {
+            _statusSeenByHook = _job.CurrentState.Status;
+            _persistedStatusSeenByHook = _job.WrittenStates[^1].Status;
+            _persistedStopFinalizedSeenByHook = _job.WrittenStates[^1].StopFinalized;
+            return Task.FromException(new InvalidOperationException("Resume was rejected"));
+        };
+    }
 
     async Task Because() => _result = await _job.Resume();
 
@@ -27,9 +33,11 @@ public class and_the_stopped_jobs_hook_throws : given.a_stopped_job_rejecting_re
     [Fact] void should_append_the_compensation_to_history() => _job.CurrentState.StatusChanges.Skip(_changesBefore).Select(change => change.Status).ShouldEqual([JobStatus.Running, JobStatus.Stopped]);
     [Fact] void should_persist_the_compensating_stop() => _job.WrittenStates[^1].Status.ShouldEqual(JobStatus.Stopped);
     [Fact] void should_persist_the_restored_progress() => _job.WrittenStates[^1].Progress.StoppedSteps.ShouldEqual(1);
-    [Fact] void should_write_the_resume_and_compensation() => Writes.ShouldEqual(_writesBefore + 2);
+    [Fact] void should_clear_the_finalized_stop_with_the_resume() => _persistedStopFinalizedSeenByHook.ShouldBeFalse();
+    [Fact] void should_record_the_restored_stop_as_finalized() => _job.WrittenStates[^1].StopFinalized.ShouldBeTrue();
+    [Fact] void should_write_the_resume_compensation_and_finalization() => Writes.ShouldEqual(_writesBefore + 3);
     [Fact] void should_not_start_steps() => _step.Verify(step => step.Start(It.IsAny<GrainId>()), Times.Never);
     [Fact] void should_not_drain_steps() => _step.Verify(step => step.Drain(It.IsAny<long>(), It.IsAny<TimeSpan>()), Times.Never);
-    [Fact] void should_not_run_the_stop_hook() => _job.StoppedCount.ShouldEqual(0);
+    [Fact] void should_run_the_stop_hook_for_the_restored_stop() => _job.StoppedCount.ShouldEqual(1);
     [Fact] void should_not_complete_the_job() => _job.AllStepsCompletedCount.ShouldEqual(0);
 }

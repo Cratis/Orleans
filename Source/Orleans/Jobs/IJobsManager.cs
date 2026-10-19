@@ -13,13 +13,14 @@ namespace Cratis.Orleans.Jobs;
 public interface IJobsManager : IGrainWithIntegerCompoundKey
 {
     /// <summary>
-    /// Prepares the jobs manager and schedules interrupted jobs for resumption.
+    /// Prepares the jobs manager, schedules interrupted jobs for resumption and stopped or removing jobs for finalization.
     /// </summary>
     /// <returns>A task that completes after dead-job cleanup and loading the interrupted jobs, before all jobs resume.</returns>
     /// <remarks>
     /// Jobs resume oldest first in bounded background work owned by this activation. Overlapping calls share
     /// preparation and the drain. A queued job whose freshly loaded status is no longer interrupted is skipped;
-    /// an explicit <see cref="Resume"/> can still resume a stopped job.
+    /// an explicit <see cref="Resume"/> can still resume a stopped job. A job that is stopped or being removed when it is
+    /// dispatched is never resumed; it finalizes its stop through <see cref="IJobStopFinalization.FinalizeStop"/>.
     /// The activation is kept alive during the drain, but deactivation, migration, memory-pressure shedding
     /// (<see cref="global::Orleans.Configuration.GrainCollectionOptions.EnableActivationSheddingOnMemoryPressure"/>),
     /// or silo shutdown cancels further dispatch. Jobs not yet resumed remain in storage and resume on the next

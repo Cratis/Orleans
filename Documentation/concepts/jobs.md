@@ -374,8 +374,9 @@ started by a job on an older silo has none to report. Their reports keep the ear
 
 A resume hook can reject work that is not safe to run yet. If the job entered `Resume()` as `Stopped`, had no
 pending drain, and had already accounted for every worker, a failure in `OnBeforeResumingJobSteps` restores its
-stopped progress and stage flags and persists another `Stopped` status. No steps start, no drain begins, and
-`OnStopped` does not run again. `Resume()` reports failure; a later call can retry the hook.
+stopped progress and stage flags and persists another `Stopped` status. No steps start and no drain begins.
+`OnStopped` runs again, so it can release whatever the failed hook began. `Resume()` reports failure; a later call
+can retry the hook.
 
 Eligibility uses the pre-resume `JobProgress.IsStopped` accounting, not proof that every worker is physically
 quiescent. Use [`StopAndDrain`](#stop-a-job-and-wait-until-it-is-drained) when you need that guarantee; a stopped
@@ -713,6 +714,17 @@ steps; successful steps remain completed. An interrupted step may execute again,
 idempotency or receiver-owned deduplication. A durable `Stop()` remains stopped: automatic recovery excludes stopped
 jobs and only restarts stopped steps when recovering an interrupted explicit `Resume()` with no later accepted step stop.
 Explicit `Resume()` is still how you resume a stopped job.
+
+A stop or removal that its silo could not finish is finished by rehydration. A job persists `Stopped` or `Removing`
+before its steps report, and runs `OnStopped` only once they all have; a silo that went away in between left that
+stop unfinished. Rehydration activates every such job. Steps that never recorded that they stopped are told to
+stop again, `OnStopped` runs once they have, and a job being removed is then removed. Steps in a stage that never
+started have nothing to stop and are left alone. Nothing resumes: the stop stands.
+
+The job records in `JobState.StopFinalized` that its stop is finished, so rehydration leaves it alone afterwards.
+A custom job storage provider must persist that property. A job stopped by a version without it reads as not
+finalized, so `OnStopped` runs once more for it on the first rehydration after the upgrade; it must tolerate that,
+as it already must for a drain that completes after its silo went away.
 
 A registered [`IJobAdmission`](#admit-or-refuse-a-jobs-execution) is asked before a rehydrated job resumes. A refusal stops
 the job, an exception or timeout leaves it as it was, and rehydration asks again only on its next pass.

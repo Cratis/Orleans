@@ -3,4 +3,4 @@
 
 namespace Cratis.Orleans.Jobs;
 
-public interface INullJobWithSomeRequest : IJob<SomeJobRequest>;
+public interface INullJobWithSomeRequest : IJob<SomeJobRequest>, IJobStopFinalization;
