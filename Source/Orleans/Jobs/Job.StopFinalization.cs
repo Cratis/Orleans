@@ -102,7 +102,10 @@ public abstract partial class Job<TRequest, TJobState> : IJobStopFinalization
     {
         // Steps already recorded as stopped were counted from storage; only the ones still to report are tracked, so a
         // late report from a counted step is not counted a second time.
-        _jobStepGrains = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
+        // Steps in a stage that never started are already counted as stopped and have nothing to stop, so they are left alone.
+        _jobStepGrains = (await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown))
+            .Where(_ => IsInStartedStage(_.Key))
+            .ToDictionary(_ => _.Key, _ => _.Value);
         _hasLiveStepTracking = true;
         _logger.StopIsWaitingForSteps(_jobStepGrains.Count);
         foreach (var (_, jobStepGrain) in _jobStepGrains)
