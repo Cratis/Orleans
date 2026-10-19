@@ -309,12 +309,17 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
             _logger.Resuming();
             var stoppedSteps = State.Progress.StoppedSteps;
-            State.Progress.StoppedSteps = 0;
+            var stopsCounted = State.StoppedStepsCounted;
+
+            // The new execution has counted no stops; that is written with it, so no activation can mistake a stop of
+            // the new execution for one it already counted.
+            ForgetCountedStops();
 
             // Resuming begins a new execution; its steps carry this change's position, so none may start unless it is durable.
             if (!await TryWriteStatusChanged(JobStatus.Running))
             {
                 State.Progress.StoppedSteps = stoppedSteps;
+                State.StoppedStepsCounted = stopsCounted;
                 if (stoppedProgress is not null)
                 {
                     State.Progress = stoppedProgress;
@@ -326,7 +331,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
 
-            if (!await TryRunResumeHook(stoppedProgress))
+            if (!await TryRunResumeHook(stoppedProgress, stopsCounted))
             {
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
@@ -334,7 +339,6 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             // Only a successful hook begins dispatch. Until then, late drained reports must stay accounted for.
             // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
             _accountedByDrain.Clear();
-            _stopsCounted.Clear();
             _started.Clear();
             _inFlight.Clear();
             return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: false);
@@ -411,8 +415,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             }
             if (State.Status is JobStatus.Removing)
             {
-                await StopNonCompletedStepsAndEnsureCompletion(true);
-                return RemoveJobError.JobIsAlreadyBeingRemoved;
+                return await ContinueRemoval();
             }
 
             _logger.Removing();
@@ -585,13 +588,41 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobCannotBeResumed);
     }
 
-    async Task StopNonCompletedStepsAndEnsureCompletion(bool removing)
+    /// <summary>
+    /// Continues a removal that is already under way, finishing it when nothing is left to wait for.
+    /// </summary>
+    /// <returns>The result of continuing the removal.</returns>
+    /// <remarks>
+    /// Steps still tracked are told again, and their reports finish the removal. When none are left to report, a
+    /// finalization that failed before - the stopped hook, clearing the job, or saving what was counted - runs again
+    /// here, and a failure is answered as one, so the removal can be asked to continue again.
+    /// </remarks>
+    async Task<Result<RemoveJobError>> ContinueRemoval()
+    {
+        if (await StopNonCompletedStepsAndEnsureCompletion(true) is not { } completion)
+        {
+            return RemoveJobError.JobIsAlreadyBeingRemoved;
+        }
+        if (completion.TryGetError(out var error))
+        {
+            _logger.FailedFinalizingRemoval(error);
+            return RemoveJobError.Unknown;
+        }
+        return RemoveJobError.JobIsAlreadyBeingRemoved;
+    }
+
+    /// <summary>
+    /// Stops the steps that have not completed, or finishes the job's completion when there are none.
+    /// </summary>
+    /// <param name="removing">Whether the job is being removed.</param>
+    /// <returns>The result of finishing the completion, or null when the steps finish it as they report.</returns>
+    async Task<Result<JobError>?> StopNonCompletedStepsAndEnsureCompletion(bool removing)
     {
         if (_observers?.Count > 0)
         {
             // The job steps will eventually handle completion
             await NotifySteps(removing);
-            return;
+            return null;
         }
 
         // This state can occur when we are trying to stop or remove a Job that is persisted over a system shutdown.
@@ -609,13 +640,12 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         if (_observers is null || _observers.Count == 0)
         {
             // All job steps should be in stopped state. Just HandleCompletion manually
-            _ = await HandleCompletionResult(await HandleCompletion());
+            return await HandleCompletionResult(await HandleCompletion());
         }
-        else
-        {
-            // The job steps will eventually handle completion
-            await NotifySteps(removing);
-        }
+
+        // The job steps will eventually handle completion
+        await NotifySteps(removing);
+        return null;
     }
 
     async Task<bool> HandleResumeJobStepResult(JobStepId jobStepId, Result<StartJobStepError> result, IJobStep jobStepGrain)

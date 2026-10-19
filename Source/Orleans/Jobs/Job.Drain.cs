@@ -226,8 +226,7 @@ public abstract partial class Job<TRequest, TJobState>
                 CountStepOutcomeInStage(stepId, succeeded: false);
                 break;
             default:
-                _stopsCounted.Add(stepId);
-                State.Progress.StoppedSteps++;
+                _ = CountStop(stepId);
                 break;
         }
 
