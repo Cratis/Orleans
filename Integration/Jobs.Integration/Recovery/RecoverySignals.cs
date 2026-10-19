@@ -32,11 +32,23 @@ public sealed class RecoverySignals(string database)
     public SemaphoreSlim RecoveryPasses { get; } = new(0);
     public SemaphoreSlim AdmissionRefusals { get; } = new(0);
 
+    public void RecoveryPassStarted(SiloAddress silo)
+    {
+        RecoveryPassStartedSource(silo).TrySetResult();
+        RecoveryPasses.Release();
+    }
+
+    public Task RecoveryPassStartedOn(SiloAddress silo) => RecoveryPassStartedSource(silo).Task;
+
     public bool RefuseAdmission
     {
         get => Volatile.Read(ref _refuseAdmission);
         set => Volatile.Write(ref _refuseAdmission, value);
     }
 
+    readonly ConcurrentDictionary<SiloAddress, TaskCompletionSource> _recoveryPassesStarted = new();
     bool _refuseAdmission;
+
+    TaskCompletionSource RecoveryPassStartedSource(SiloAddress silo) =>
+        _recoveryPassesStarted.GetOrAdd(silo, _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
 }

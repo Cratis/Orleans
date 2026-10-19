@@ -2,8 +2,6 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Orleans.Jobs.Integration.Recovery;
-using Microsoft.Extensions.DependencyInjection;
-using Orleans.TestingHost;
 
 namespace Cratis.Orleans.Jobs.Integration.for_job_system;
 
@@ -39,13 +37,7 @@ public class when_admission_refuses_a_job_whose_silo_died : Specification
         _managerResumed = await _fixture.Manager.Resume(id).WaitAsync(RecoveryClusterFixture.Deadline, TimeProvider.System);
         _jobResume = await job.Resume();
 
-        var host = await job.Silo();
-        var hostHandle = _fixture.Cluster.Silos.Single(silo => ((InProcessSiloHandle)silo).SiloHost.Services.GetRequiredService<ILocalSiloDetails>().SiloAddress.Equals(host));
-        while (_fixture.Signals.RecoveryPasses.Wait(0))
-        {
-        }
-        await _fixture.Cluster.RestartSiloAsync(hostHandle).WaitAsync(RecoveryClusterFixture.Deadline, TimeProvider.System);
-        await _fixture.Signals.RecoveryPasses.WaitAsync(RecoveryClusterFixture.Deadline);
+        await _fixture.Restart(await job.Silo());
         _afterRestart = await job.Inspect();
         _performersAfterRestart = _fixture.Signals.Performers.Count;
     }

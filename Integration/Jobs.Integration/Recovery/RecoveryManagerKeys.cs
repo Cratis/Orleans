@@ -6,11 +6,11 @@ using Cratis.DependencyInjection;
 namespace Cratis.Orleans.Jobs.Integration.Recovery;
 
 [Singleton]
-public sealed class RecoveryManagerKeys(RecoverySignals signals) : IJobsManagerKeys
+public sealed class RecoveryManagerKeys(RecoverySignals signals, ILocalSiloDetails local) : IJobsManagerKeys
 {
     public Task<IEnumerable<JobsManagerKey>> GetKeys(CancellationToken cancellationToken)
     {
-        signals.RecoveryPasses.Release();
+        signals.RecoveryPassStarted(local.SiloAddress);
         return Task.FromResult<IEnumerable<JobsManagerKey>>([signals.Key]);
     }
 }
