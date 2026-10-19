@@ -748,7 +748,8 @@ A step can have both a stop from an earlier execution and a run of the current o
 - When the stop from the earlier execution is counted while the current run may still be running, the job tells
   that run once, in the current execution, that the job is removed. The run stops, reports its stop - which is
   already counted - and deletes its own record, even when that earlier stop was the last report and the job is
-  already gone. The job sends this notice once: if it cannot reach the run then, the run's record can stay behind.
+  already gone. If the job cannot reach the run while it is still removing, it keeps retrying the notice. If that
+  earlier stop already finished the removal, the job is gone and does not retry, so the run's record can stay behind.
 
 A step hosted by a silo older than v1.20.0 reports no generation, so its stop is never taken for one from an
 earlier execution, and its current run is not told again.
