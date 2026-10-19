@@ -17,19 +17,19 @@ public abstract partial class Job<TRequest, TJobState>
     /// <param name="stepId">The <see cref="JobStepId"/> of the reporting step.</param>
     /// <param name="stopped">Whether the step reports that it stopped.</param>
     /// <returns>Whether the outcome is ignored, and the attempt it was reported for.</returns>
-    async Task<(bool Ignored, int Attempt)> IgnoreStepOutcome(JobStepId stepId, bool stopped)
+    async Task<(bool Ignored, int Attempt, bool OfEarlierExecution)> IgnoreStepOutcome(JobStepId stepId, bool stopped)
     {
         // Read and removed first, so neither the generation nor the attempt flows into the hooks and stages the outcome
         // leads to. Only a generation the step reported counts: one it merely inherited from its job's call says nothing
         // about its run.
         var attempt = JobStepAttempt.TakeReported();
-        return (await IgnoreStepOutcome(stepId, stopped, attempt), attempt);
+        var generation = JobExecutionGeneration.TakeReported();
+        var ofEarlierExecution = generation is { } reported && reported < ExecutionGeneration();
+        return (await IgnoreStepOutcome(stepId, stopped, attempt, generation), attempt, ofEarlierExecution);
     }
 
-    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped, int attempt)
+    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped, int attempt, long? generation)
     {
-        var generation = JobExecutionGeneration.TakeReported();
-
         // A drain took this step's outcome from the step itself; the step's own report of it counts nothing.
         if (_accountedByDrain.Contains(stepId))
         {
@@ -122,6 +122,25 @@ public abstract partial class Job<TRequest, TJobState>
         State.StoppedStepsCounted.Add(stepId);
         State.Progress.StoppedSteps++;
         return true;
+    }
+
+    /// <summary>
+    /// Takes back a stop the removal counted for a step whose success or failure arrives after it.
+    /// </summary>
+    /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
+    /// <remarks>
+    /// While a job is removed, the stop of a step's earlier execution is counted. The step's run of the current
+    /// execution may still succeed or fail, and that outcome is counted as well, so the step would count twice. The
+    /// outcome wins: the stop is taken back, and the same write saves the count and the steps counted.
+    /// </remarks>
+    void UncountStopDuringRemoval(JobStepId stepId)
+    {
+        if (State.Status is not JobStatus.Removing || !State.StoppedStepsCounted.Remove(stepId))
+        {
+            return;
+        }
+        State.Progress.StoppedSteps--;
+        _logger.UncountingStopOfEarlierExecution(stepId);
     }
 
     bool IsDuplicateOutcome(JobStepId stepId, int attempt) =>
