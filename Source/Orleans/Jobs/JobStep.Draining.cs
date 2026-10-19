@@ -279,7 +279,8 @@ public abstract partial class JobStep<TRequest, TResult, TState>
                 run.Claimed();
             }
 
-            // Whoever delivers - the work or this stop - a removed step is removed once that delivery is done.
+            // Whoever delivers - the work or this stop - a removed step is removed once that delivery is done. A stop
+            // the job never acknowledged leaves the run no longer current, and the step is kept to report it again.
             await run.DeliverySettled;
             if (run.Phase is JobStepRunPhase.Removing)
             {
@@ -440,7 +441,13 @@ public abstract partial class JobStep<TRequest, TResult, TState>
 
             if (outcome.TryGetError(out var error))
             {
-                if (error.Cancelled)
+                if (error.Cancelled && run.Phase is JobStepRunPhase.Removing)
+                {
+                    // A removed step deletes itself once this is done, and then nothing is left to report the stop.
+                    // So it reports until the job has stored it - a job that is gone answers that it has nothing to.
+                    await DeliverUntilAcknowledged(run, () => ReportStopToJob(run, error), untilAcknowledged: true);
+                }
+                else if (error.Cancelled)
                 {
                     // A stop is reported before it is persisted: the step is not done, so it must not look done.
                     _ = await ReportFailureToJob(run, error);
@@ -501,9 +508,16 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         await DeliverUntilAcknowledged(run, () => _job!.OnStepFailed(JobStepId, JobStepResult.Failed(error)));
     }
 
-    async Task DeliverUntilAcknowledged(JobStepRun run, Func<Task<Result<JobError>>> deliver)
+    async Task<Result<JobError>> ReportStopToJob(JobStepRun run, PerformJobStepError error) =>
+        (await ReportFailureToJob(run, error)).TryGetError(out _)
+            ? JobError.UnknownError
+            : Result<JobError>.Success();
+
+    async Task DeliverUntilAcknowledged(JobStepRun run, Func<Task<Result<JobError>>> deliver, bool untilAcknowledged = false)
     {
-        var maxAttempts = Math.Max(1, _options.StepDeliveryMaxAttempts);
+        // Bounded by the activation instead when it must be acknowledged: an activation that no longer owns the run
+        // stops, and the step's kept state is what is reported again.
+        var maxAttempts = untilAcknowledged ? int.MaxValue : Math.Max(1, _options.StepDeliveryMaxAttempts);
         var delay = _options.StepDeliveryRetryDelay;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -538,7 +552,10 @@ public abstract partial class JobStep<TRequest, TResult, TState>
         }
 
         // The outcome is persisted; the job's watchdog accounts for a step it was never told about.
-        logger.GaveUpDeliveringJobStepOutcome(maxAttempts);
+        if (!untilAcknowledged)
+        {
+            logger.GaveUpDeliveringJobStepOutcome(maxAttempts);
+        }
     }
 
     async Task<Result<JobStepError>> ReportFailureToJob(JobStepRun? run, PerformJobStepError error)

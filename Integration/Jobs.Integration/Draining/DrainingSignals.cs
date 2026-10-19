@@ -11,6 +11,7 @@ namespace Cratis.Orleans.Jobs.Integration.Draining;
 public sealed class DrainingSignals(string database)
 {
     int _writes;
+    int _stoppedCallbacks;
     int _activations;
     int _entries;
 
@@ -95,6 +96,22 @@ public sealed class DrainingSignals(string database)
     /// Gets the signal that the job ran its stopped callback.
     /// </summary>
     public TaskCompletionSource JobStopped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Gets or sets whether the job's stopped callback throws the first time it runs.
+    /// </summary>
+    public bool FailFirstStop { get; set; }
+
+    /// <summary>
+    /// Gets the number of times the job's stopped callback ran.
+    /// </summary>
+    public int StoppedCallbacks => Volatile.Read(ref _stoppedCallbacks);
+
+    /// <summary>
+    /// Records that the job's stopped callback ran.
+    /// </summary>
+    /// <returns>True if the callback should fail this time.</returns>
+    public bool StoppedCallbackRan() => Interlocked.Increment(ref _stoppedCallbacks) == 1 && FailFirstStop;
 
     /// <summary>
     /// Gets the signal that the job recorded the outcome of its step.

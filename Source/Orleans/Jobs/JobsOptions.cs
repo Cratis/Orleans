@@ -164,7 +164,9 @@ public class JobsOptions
     /// </summary>
     /// <remarks>
     /// The outcome is persisted before it is delivered, so a delivery that never succeeds loses nothing: the step stays
-    /// in the state it persisted and the job's watchdog accounts for it. Values below 1 are treated as 1.
+    /// in the state it persisted and the job's watchdog accounts for it. Values below 1 are treated as 1. A step that is
+    /// being removed is not limited by this: it reports its stop until the job has stored it, because it deletes itself
+    /// once the job has.
     /// </remarks>
     public int StepDeliveryMaxAttempts { get; init; } = 10;
 

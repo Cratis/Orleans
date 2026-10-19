@@ -43,14 +43,15 @@ public abstract partial class Job<TRequest, TJobState>
         {
             return Result.Success<JobError>();
         }
-        if (!_stopsCounted.Add(stepId))
+        if (!CountStop(stepId))
         {
             _logger.IgnoringStopAlreadyCounted(stepId);
-            return Result.Success<JobError>();
+            return State.Status is JobStatus.Removing
+                ? await FinishRemovalForCountedStop(stepId)
+                : Result.Success<JobError>();
         }
         _logger.StepStopped(stepId);
-        State.Progress.StoppedSteps++;
-        return await PerformStepEventHandling(stepId, jobStepResult);
+        return await PerformStepEventHandling(stepId, jobStepResult, stopDuringRemoval: State.Status is JobStatus.Removing);
     }
 
     /// <inheritdoc/>
@@ -120,20 +121,27 @@ public abstract partial class Job<TRequest, TJobState>
     /// <returns>Collection of <see cref="JobStepDetails"/> .</returns>
     protected abstract Task<IImmutableList<JobStepDetails>> PrepareSteps(TRequest request);
 
-    async Task<Result<JobError>> PerformStepEventHandling(JobStepId stepId, JobStepResult jobStepResult)
+    async Task<Result<JobError>> PerformStepEventHandling(JobStepId stepId, JobStepResult jobStepResult, bool stopDuringRemoval = false)
     {
         _hasLiveStepTracking = true;
         try
         {
-            _ = await WriteState();
+            var written = await WriteState();
             var handleCompletedStepResult = await HandleJobStepCompletedOrStopped(stepId, jobStepResult);
-            return handleCompletedStepResult.Match(
-                _ => Result.Success<JobError>(),
-                error =>
-                {
-                    _logger.FailedHandlingCompletedJobStep(stepId, error);
-                    return Result.Failed(error);
-                });
+            if (handleCompletedStepResult.TryGetError(out var error))
+            {
+                _logger.FailedHandlingCompletedJobStep(stepId, error);
+                return Result.Failed(error);
+            }
+
+            // A removing step deletes itself once its stop is acknowledged, so the acknowledgement must mean the stop
+            // is saved: otherwise the step reports again, and the job saves it then.
+            if (stopDuringRemoval && written.TryGetException(out _) && State.Status is JobStatus.Removing && JobIsPrepared())
+            {
+                _logger.StopNotSavedWhileRemoving(stepId);
+                return JobError.PersistStateError;
+            }
+            return Result.Success<JobError>();
         }
         catch (Exception ex)
         {
@@ -476,6 +484,44 @@ public abstract partial class Job<TRequest, TJobState>
         _observers?.Subscribe(observer.GetPrimaryKey(), observer);
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Answers a stop that the removal already counted, finishing what the first report of it left undone.
+    /// </summary>
+    /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
+    /// <returns>The result of saving the count and finishing the removal.</returns>
+    /// <remarks>
+    /// A removing step reports its stop until the job acknowledges it, and only then deletes itself. A report that
+    /// arrives again was counted before, but saving the count or finalizing the removal may have failed, and the step
+    /// is the one left to retry it. So the job saves what it counted and finishes the removal once every step is
+    /// accounted for; a removal that is finished already has nothing left to do. The step's own hook ran when the stop
+    /// was counted and does not run again.
+    /// </remarks>
+    async Task<Result<JobError>> FinishRemovalForCountedStop(JobStepId stepId)
+    {
+        try
+        {
+            return await HandleCompletionResult(await HandleCompletion());
+        }
+        catch (Exception ex)
+        {
+            _logger.Failed(ex);
+            return JobError.UnknownError;
+        }
+        finally
+        {
+            // A counted step has nothing left to report, so it no longer holds the removal up as one still tracked.
+            await ForgetCountedStep(stepId);
+        }
+    }
+
+    async Task ForgetCountedStep(JobStepId stepId)
+    {
+        _jobStepGrains?.Remove(stepId);
+        LeaveWindow(stepId);
+        await UnsubscribeJobStep(stepId);
+    }
+
     Task UnsubscribeJobStep(JobStepId stepId)
     {
         _observers?.Unsubscribe(stepId);

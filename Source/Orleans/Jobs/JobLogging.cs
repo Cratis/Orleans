@@ -218,6 +218,12 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Debug, "Ignoring a stop of step {StepId} that was already counted")]
     internal static partial void IgnoringStopAlreadyCounted(this ILogger<IJob> logger, JobStepId stepId);
 
+    [LoggerMessage(LogLevel.Warning, "The stop of step {StepId} was counted while the job is being removed, but could not be saved; the step reports it again")]
+    internal static partial void StopNotSavedWhileRemoving(this ILogger<IJob> logger, JobStepId stepId);
+
+    [LoggerMessage(LogLevel.Warning, "Finishing the removal of the job failed with {Error}; asking to remove it again retries it")]
+    internal static partial void FailedFinalizingRemoval(this ILogger<IJob> logger, JobError error);
+
     [LoggerMessage(LogLevel.Debug, "Starting {Count} more job steps to fill the window")]
     internal static partial void FillingWindow(this ILogger<IJob> logger, int count);
 

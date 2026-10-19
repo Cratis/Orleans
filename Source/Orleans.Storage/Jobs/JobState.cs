@@ -64,6 +64,16 @@ public class JobState
     public bool StopFinalized { get; set; }
 
     /// <summary>
+    /// Gets or sets the steps whose stop the current execution of the job has counted.
+    /// </summary>
+    /// <remarks>
+    /// Saved together with the count of stopped steps, so a step that reports its stop again - because it did not hear
+    /// back, or because the job was activated again in between - is counted once per execution. An execution that
+    /// begins anew starts with none. A job written before this was introduced reads with none counted.
+    /// </remarks>
+    public IList<JobStepId> StoppedStepsCounted { get; set; } = [];
+
+    /// <summary>
     /// Gets or sets the complete step plan saved before preparing any step.
     /// </summary>
     /// <remarks>

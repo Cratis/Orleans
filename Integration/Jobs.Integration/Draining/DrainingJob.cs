@@ -40,6 +40,10 @@ public sealed class DrainingJob(DrainingSignals signals) : Job<DrainingRequest, 
     /// <inheritdoc/>
     protected override Task OnStopped()
     {
+        if (signals.StoppedCallbackRan())
+        {
+            return Task.FromException(new InvalidOperationException("The first stopped callback fails"));
+        }
         signals.JobStopped.TrySetResult();
         return Task.CompletedTask;
     }

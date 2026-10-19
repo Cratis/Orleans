@@ -9,7 +9,6 @@ public abstract partial class Job<TRequest, TJobState>
 {
     readonly HashSet<JobStepId> _stepsToRestartAfterEarlierStop = [];
     readonly HashSet<JobStepId> _outcomesCounted = [];
-    readonly HashSet<JobStepId> _stopsCounted = [];
     IGrainTimer? _restartStepsTimer;
 
     /// <summary>
@@ -49,7 +48,9 @@ public abstract partial class Job<TRequest, TJobState>
         if (generation is { } reported && reported < ExecutionGeneration())
         {
             // A stop of an earlier execution is not a stop of this one: the step stays tracked and is started again.
-            if (stopped)
+            // While the job is removed there is no execution left to start it in again, so its stop is counted -
+            // once, as any other - for the removal to finish.
+            if (stopped && State.Status is not JobStatus.Removing)
             {
                 _logger.IgnoringStopOfEarlierExecution(stepId, reported);
                 RestartAfterEarlierStop(stepId);
@@ -83,18 +84,44 @@ public abstract partial class Job<TRequest, TJobState>
     /// </remarks>
     void CountStopsFrom(IEnumerable<JobStepState> steps)
     {
-        _stopsCounted.Clear();
-        _stopsCounted.UnionWith(steps.Where(step => step.Status is JobStepStatus.Stopped).Select(step => step.Id.JobStepId));
-        State.Progress.StoppedSteps = _stopsCounted.Count;
+        State.StoppedStepsCounted = steps
+            .Where(step => step.Status is JobStepStatus.Stopped)
+            .Select(step => step.Id.JobStepId)
+            .Distinct()
+            .ToList();
+        State.Progress.StoppedSteps = State.StoppedStepsCounted.Count;
     }
 
     /// <summary>
     /// Forgets the stops counted so far, as an execution that begins anew has none.
     /// </summary>
+    /// <remarks>
+    /// A new list rather than clearing the current one, so a copy kept to restore an execution stays as it was.
+    /// </remarks>
     void ForgetCountedStops()
     {
-        _stopsCounted.Clear();
+        State.StoppedStepsCounted = [];
         State.Progress.StoppedSteps = 0;
+    }
+
+    /// <summary>
+    /// Counts a step's stop, unless the current execution already counted it.
+    /// </summary>
+    /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
+    /// <returns>True if the stop was counted now; false if it was counted before.</returns>
+    /// <remarks>
+    /// The steps counted are saved with the job, together with the count, so a stop is counted once per execution
+    /// even when its report arrives again in a later activation.
+    /// </remarks>
+    bool CountStop(JobStepId stepId)
+    {
+        if (State.StoppedStepsCounted.Contains(stepId))
+        {
+            return false;
+        }
+        State.StoppedStepsCounted.Add(stepId);
+        State.Progress.StoppedSteps++;
+        return true;
     }
 
     bool IsDuplicateOutcome(JobStepId stepId, int attempt) =>

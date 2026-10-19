@@ -48,6 +48,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     protected override bool KeepAfterCompletedWithFailures => !ShouldBeRemovedAfterCompletedWithFailures;
     public int AllStepsCompletedCount;
     public int StoppedCount;
+    public bool FailClears;
+    public int ClearAttempts;
     public bool FailWrites;
     public int WriteAttempts;
     public bool PersistBeforeFailingWrite;
@@ -130,6 +132,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
                 StatusChanges = State.StatusChanges.ToList(),
                 DrainPending = State.DrainPending,
                 StopFinalized = State.StopFinalized,
+                StoppedStepsCounted = State.StoppedStepsCounted.ToList(),
                 StepPlan = State.StepPlan?.ToList(),
                 Progress = State.Progress with { Stages = State.Progress.Stages.Select(stage => stage with { }).ToList() }
             });
@@ -142,6 +145,14 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
         {
             await AfterWrite();
         }
+    }
+
+    protected override Task ClearStateAsync()
+    {
+        ClearAttempts++;
+        return FailClears
+            ? Task.FromException(new InvalidOperationException("The clear failed"))
+            : base.ClearStateAsync();
     }
 
     protected override JobStageFailureBehavior GetFailureBehaviorFor(JobStepStage stage) =>

@@ -138,6 +138,20 @@ public sealed class DrainingClusterFixture : IDisposable
     public async Task<JobStepState> GetStepState(JobId jobId) => (await Storage.JobSteps.GetForJob(jobId)).AsT0.Single();
 
     /// <summary>
+    /// Gets the persisted steps of a job, which are none once the job's steps are removed.
+    /// </summary>
+    /// <param name="jobId">The job.</param>
+    /// <returns>The persisted <see cref="JobStepState"/> of each step.</returns>
+    public async Task<IEnumerable<JobStepState>> GetStepStates(JobId jobId) => (await Storage.JobSteps.GetForJob(jobId)).AsT0;
+
+    /// <summary>
+    /// Gets the persisted state of a job, or why there is none.
+    /// </summary>
+    /// <param name="jobId">The job.</param>
+    /// <returns>The <see cref="JobState"/>, or the error reading it.</returns>
+    public Task<Catch<JobState, Storage.Jobs.JobError>> GetJobState(JobId jobId) => Storage.Jobs.GetJob(jobId);
+
+    /// <summary>
     /// Gets the job's only step grain.
     /// </summary>
     /// <param name="jobId">The job.</param>
