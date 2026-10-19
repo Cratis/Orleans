@@ -34,6 +34,10 @@ public abstract partial class Job<TRequest, TJobState>
                     // Running execution; the next activation must recover whichever write reached storage.
                     DeactivateOnIdleDuringShutdown();
                 }
+                else
+                {
+                    await RunStoppedHookAfterRejectedResume();
+                }
             }
             return false;
         }

@@ -41,5 +41,5 @@ public class and_an_earlier_drained_success_arrives_after_the_hook_failed : give
     [Fact] void should_count_the_late_success_once() => _job.CurrentState.Progress.SuccessfulSteps.ShouldEqual(1);
     [Fact] void should_deliver_the_success_once() => _job.HandledStepResults.Count(id => id == _firstId).ShouldEqual(1);
     [Fact] void should_preserve_stopped_progress() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(1);
-    [Fact] void should_not_add_another_stop_callback() => _job.StoppedCount.ShouldEqual(1);
+    [Fact] void should_run_the_stop_hook_again_for_the_restored_stop() => _job.StoppedCount.ShouldEqual(2);
 }

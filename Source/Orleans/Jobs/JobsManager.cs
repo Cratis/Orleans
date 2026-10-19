@@ -36,6 +36,8 @@ public class JobsManager(
     ILogger<JobsManager> logger) : Grain, IJobsManager
 {
     static readonly JobStatus[] _interruptedStatuses = [JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps];
+    static readonly JobStatus[] _stoppingStatuses = [JobStatus.Stopped, JobStatus.Removing];
+    static readonly JobStatus[] _rehydratedStatuses = [.. _interruptedStatuses, .. _stoppingStatuses];
     static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
     CancellationTokenSource _rehydrationCancellation = null!;
     IDisposable? _deactivationSubscription;
@@ -338,7 +340,7 @@ public class JobsManager(
             logger.Rehydrating();
             await CleanupDeadJobs().WaitAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            var getRunningJobs = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
+            var getRunningJobs = await _jobStorage!.GetJobs(_rehydratedStatuses).WaitAsync(cancellationToken);
             await getRunningJobs.Match(
                 runningJobs =>
                 {
@@ -417,7 +419,7 @@ public class JobsManager(
             // Coalesce requests during a drain into a fresh full pass, not another concurrent drain.
             _rehydrationRequested = false;
             await CleanupDeadJobs().WaitAsync(cancellationToken);
-            var discovered = await _jobStorage!.GetJobs(_interruptedStatuses).WaitAsync(cancellationToken);
+            var discovered = await _jobStorage!.GetJobs(_rehydratedStatuses).WaitAsync(cancellationToken);
             discovered.RethrowError();
             runningJobs = discovered.AsT0;
         }
@@ -602,11 +604,18 @@ public class JobsManager(
         // second read. Explicit Resume remains unrestricted.
         var outcome = await DoActionOnJobGrain(state.Id, async (currentState, job) =>
         {
-            if (cancellationToken.IsCancellationRequested || !_interruptedStatuses.Contains(currentState.Status))
+            if (cancellationToken.IsCancellationRequested)
             {
                 return false;
             }
-            return await ResumeAction(state.Id)(currentState, job);
+
+            // A stop or removal whose silo went away before its steps reported is finished, never resumed: the stop stands.
+            if (_stoppingStatuses.Contains(currentState.Status))
+            {
+                await (job as IJobStopFinalization ?? job.AsReference<IJobStopFinalization>()).FinalizeStop();
+                return true;
+            }
+            return _interruptedStatuses.Contains(currentState.Status) && await ResumeAction(state.Id)(currentState, job);
         });
         return outcome.Match(taken => taken, _ => false);
     }

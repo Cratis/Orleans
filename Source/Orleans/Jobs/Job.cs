@@ -378,6 +378,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return StopJobError.CouldNotPersistStop;
             }
 
+            _stoppedHookRan = false;
             DisposeStageAdmissionTimer();
             await AccountForStepsThatNeverStarted();
 
@@ -677,6 +678,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (State.Status is JobStatus.Stopped or JobStatus.Removing)
             {
                 await OnStopped();
+                _stoppedHookRan = State.Status is JobStatus.Stopped;
             }
 
             // Don't go to Complete if the job is Stopped, because it can be resumed or removed in the future.

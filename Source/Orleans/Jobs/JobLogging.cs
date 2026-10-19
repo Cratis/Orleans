@@ -29,6 +29,12 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Warning, "Job was stopped with all of its steps already completed - finalizing it instead of leaving it stopped")]
     public static partial void FinalizingStoppedJobWithNothingLeftToRun(this ILogger<IJob> logger);
 
+    [LoggerMessage(LogLevel.Information, "Job left {Status} with all of its steps stopped - finalizing its stop")]
+    public static partial void FinalizingStopAfterItsSiloWentAway(this ILogger<IJob> logger, JobStatus status);
+
+    [LoggerMessage(LogLevel.Information, "Job is still waiting for {Count} steps to stop - telling them to stop again")]
+    public static partial void StopIsWaitingForSteps(this ILogger<IJob> logger, int count);
+
     [LoggerMessage(LogLevel.Warning, "Job failed recounting its progress from its job steps")]
     public static partial void FailedReconcilingProgressFromJobSteps(this ILogger<IJob> logger, Exception ex);
 
