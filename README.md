@@ -6,7 +6,7 @@
   <h3 align="center">Cratis Orleans</h3>
 
   <p align="center">
-    The shared Orleans building blocks for the Cratis platform — a durable job system, a pluggable jobs storage API, and the silo hosting tooling every Cratis service that co-hosts Orleans needs.
+    Cratis Orleans is a set of building blocks for .NET developers that provides durable jobs, pluggable jobs storage, and silo hosting.
     <br />
     <a href="https://www.cratis.io/orleans/"><strong>Explore the docs »</strong></a>
     <br />
