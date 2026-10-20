@@ -3,6 +3,7 @@
         <AssemblyName>Cratis.Orleans.Jobs.Integration</AssemblyName>
         <RootNamespace>Cratis.Orleans.Jobs.Integration</RootNamespace>
         <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
         <TargetFramework>net10.0</TargetFramework>
         <!-- The packaging build multi-targets every project in the solution. This one now references the SQL
              storage, which is net10.0 only because EF Core 10 is, so without this the restore fails for net8.0
