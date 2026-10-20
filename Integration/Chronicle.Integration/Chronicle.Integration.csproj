@@ -3,6 +3,7 @@
         <AssemblyName>Cratis.Orleans.Chronicle.Integration</AssemblyName>
         <RootNamespace>Cratis.Orleans.Chronicle.Integration</RootNamespace>
         <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
         <TargetFramework>net10.0</TargetFramework>
         <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net10.0</TargetFrameworks>
     </PropertyGroup>

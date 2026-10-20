@@ -3,6 +3,7 @@
         <AssemblyName>Cratis.Orleans.Storage.Specs</AssemblyName>
         <RootNamespace>Cratis.Orleans</RootNamespace>
         <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Moq" />
