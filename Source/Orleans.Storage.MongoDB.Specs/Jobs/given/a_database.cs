@@ -20,12 +20,19 @@ public class a_database : Specification
         BsonSerializer.RegisterSerializationProvider(new ConceptSerializationProvider());
     }
 
-    void Establish() => _database = Substitute.For<IMongoDatabase>();
+    protected const string DatabaseName = "jobs";
+
+    void Establish()
+    {
+        _database = Substitute.For<IMongoDatabase>();
+        _database.DatabaseNamespace.Returns(new DatabaseNamespace(DatabaseName));
+    }
 
     protected IMongoCollection<TDocument> Collection<TDocument>(string name)
     {
         var collection = Substitute.For<IMongoCollection<TDocument>>();
-        collection.CollectionNamespace.Returns(new CollectionNamespace("jobs", name));
+        collection.CollectionNamespace.Returns(new CollectionNamespace(DatabaseName, name));
+        collection.Database.Returns(_database);
         collection.Indexes.ListAsync(Arg.Any<ListIndexesOptions>(), Arg.Any<CancellationToken>()).Returns(_ => Cursor(
             [new BsonDocument("name", "status"), new BsonDocument("name", "type_status"), new BsonDocument("name", "jobId")]));
         _database.GetCollection<TDocument>(name).Returns(collection);

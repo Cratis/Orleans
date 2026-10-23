@@ -38,6 +38,9 @@ public static class MongoDBJobsStorageServiceCollectionExtensions
         services.AddSingleton<ICustomSerializers, CustomSerializers>();
         services.AddSingleton<JobStateSerializer>();
         services.AddSingleton<IJobsStorage, MongoDBJobsStorage>();
+
+        // Observing jobs shares the database's change stream through Arc's process-wide watcher, opened on this client.
+        services.AddMongoDBWatcher();
         return services;
     }
 }
