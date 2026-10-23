@@ -1,0 +1,164 @@
+name: Grain Compatibility
+
+# Products built on this package (Chronicle first) run rolling upgrades with silos of two releases of it in one
+# Orleans cluster, calling each other's job, job-step, worker and state-machine grains. Orleans identifies a grain
+# method on the wire by a hash of its interface, name and parameter types, so changing a signature in a minor or
+# patch release makes the two releases unable to decode each other's calls and the rollout stalls
+# (Cratis/Chronicle#5272).
+#
+# This compares the grain contracts this build carries (OrleansContracts.txt in each project below, kept current by
+# the Orleans contract analyzer, which fails the build when the source drifts from it) against the latest release,
+# and fails on anything that is not purely additive. Additive is transitive - nothing is ever removed and versions
+# only rise - so passing against the latest release keeps every release since this gate upgradable in place.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'The version being released. A new major is allowed to break grain contracts. When empty, the latest tag decides.'
+        required: false
+        type: string
+        default: ''
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  # Every project that declares grain interfaces, and so carries an OrleansContracts.txt.
+  CONTRACT_PROJECTS: Source/Orleans/Orleans.csproj Source/Orleans.Chronicle/Orleans.Chronicle.csproj
+
+jobs:
+  grain-compatibility:
+    runs-on: ubuntu-latest
+    # Generating a baseline from released source builds two projects; this gates every build, so a hung run must
+    # not hold a pool slot for hours.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # The baseline is the latest release tag, and a shallow checkout has none.
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Determine baseline release
+        id: baseline
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+
+          # A major release is the one place grain contracts may break; it is upgraded with a full stop.
+          if [ -n "$LABELS" ] && [ "$(printf '%s' "$LABELS" | jq '[.[] | select(. == "major")] | length')" -gt 0 ]; then
+            echo "::notice title=Grain compatibility not checked::This pull request is labeled major, so silos of the previous release are not expected to share a cluster with it."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Take the first line of the whole list rather than piping into head: under pipefail, head closing the pipe
+          # kills git with SIGPIPE. When publishing, the release being cut is already tagged; the baseline is the one
+          # before it.
+          ALL_TAGS="$(git tag --list 'v*' --sort=-v:refname | grep -vxF "v${RELEASE_VERSION:-none}" || true)"
+          LATEST_TAG="${ALL_TAGS%%$'\n'*}"
+          if [ -z "$LATEST_TAG" ]; then
+            echo "::notice title=Grain compatibility not checked::No release tag exists yet, so there is no released cluster to stay compatible with."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LATEST_MAJOR="${LATEST_TAG#v}"
+          LATEST_MAJOR="${LATEST_MAJOR%%.*}"
+          if [ -n "$RELEASE_VERSION" ] && [ "${RELEASE_VERSION%%.*}" != "$LATEST_MAJOR" ]; then
+            echo "::notice title=Grain compatibility not checked::$RELEASE_VERSION starts a new major after $LATEST_TAG, which is upgraded with a full stop."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Baseline release $LATEST_TAG."
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build the comparison
+        if: steps.baseline.outputs.skip == 'false'
+        run: dotnet build Source/Tools/GrainCompatibility/GrainCompatibility.csproj -c Release
+
+      # A gate that stopped detecting breaks would pass every change. This plants each kind of break and fails
+      # unless every one is still found.
+      - name: Prove the comparison still detects breaks
+        if: steps.baseline.outputs.skip == 'false'
+        run: dotnet run --no-build --project Source/Tools/GrainCompatibility -c Release -- --self-test
+
+      # A release carries its manifests from the first one that includes this gate. Before that, each is generated
+      # from the released source with the same analyzer that produced the one at HEAD, so a difference in how the
+      # two were made cannot read as a difference in the contract.
+      - name: Compare grain contracts with ${{ steps.baseline.outputs.tag }}
+        if: steps.baseline.outputs.skip == 'false'
+        env:
+          TAG: ${{ steps.baseline.outputs.tag }}
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/grain-compatibility"
+          mkdir -p "$WORK"
+          compared=0
+          failed=0
+
+          for PROJECT in $CONTRACT_PROJECTS; do
+            CONTRACTS="$(dirname "$PROJECT")/OrleansContracts.txt"
+            if [ ! -s "$CONTRACTS" ]; then
+              echo "::error title=Missing grain contracts::$CONTRACTS does not exist. Every project in CONTRACT_PROJECTS must carry one."
+              exit 2
+            fi
+
+            BASELINE="$WORK/$(basename "$PROJECT" .csproj).OrleansContracts.txt"
+            if git cat-file -e "$TAG:$CONTRACTS" 2>/dev/null; then
+              git show "$TAG:$CONTRACTS" > "$BASELINE"
+              echo "Using $CONTRACTS as committed in $TAG."
+            elif git cat-file -e "$TAG:$PROJECT" 2>/dev/null; then
+              echo "$TAG carries no $CONTRACTS; generating it from the released source."
+              SOURCE="$WORK/source"
+              [ -d "$SOURCE" ] || git worktree add --detach "$SOURCE" "$TAG"
+              # dotnet format takes no MSBuild properties, so the analyzer is switched on in the released project file.
+              perl -0pi -e 's|<PropertyGroup>|<PropertyGroup><EnableOrleansContractsAnalyzer>true</EnableOrleansContractsAnalyzer>|' "$SOURCE/$PROJECT"
+              dotnet format "$SOURCE/$PROJECT" analyzers \
+                --severity info \
+                --diagnostics ORLEANS0016 ORLEANS0017 ORLEANS0018 ORLEANS0019 ORLEANS0020 ORLEANS0022 ORLEANS0023 ORLEANS0024
+              # A release built with an Orleans that predates the contract analyzer produces nothing to compare.
+              if [ ! -s "$SOURCE/$CONTRACTS" ]; then
+                echo "::error title=Grain compatibility baseline could not be produced::The contract analyzer wrote no $CONTRACTS for $TAG."
+                exit 2
+              fi
+              cp "$SOURCE/$CONTRACTS" "$BASELINE"
+            else
+              echo "::notice title=New contract project::$PROJECT did not exist in $TAG, so it has no released grains to stay compatible with."
+              continue
+            fi
+
+            # An empty baseline would compare nothing and pass everything.
+            if ! grep -q '^interface ' "$BASELINE"; then
+              echo "::error title=Grain compatibility baseline is empty::The baseline contracts for $PROJECT in $TAG declare no grain interfaces, so nothing could be compared."
+              exit 2
+            fi
+
+            compared=$((compared + 1))
+            status=0
+            dotnet run --no-build --project Source/Tools/GrainCompatibility -c Release -- \
+              --baseline "$BASELINE" \
+              --current "$CONTRACTS" \
+              --baseline-name "$TAG $(basename "$PROJECT" .csproj)" \
+              --github || status=$?
+            # 1 is a break, 2 is could-not-run; keep the worst so an unknown is never reported as a pass.
+            if [ "$status" -gt "$failed" ]; then failed=$status; fi
+          done
+
+          if [ "$compared" -eq 0 ]; then
+            echo "::error title=Nothing compared::None of $CONTRACT_PROJECTS existed in $TAG."
+            exit 2
+          fi
+          echo "Compared $compared contract project(s) with $TAG."
+          exit "$failed"

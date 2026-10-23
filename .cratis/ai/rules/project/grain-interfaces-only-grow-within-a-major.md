@@ -15,9 +15,8 @@ parameter, a widened type - is a different method. The older silo cannot decode 
 (Cratis/Chronicle#5272).
 
 The grain interfaces this rule covers are every interface deriving from `IGrainWith...Key` or `IGrainObserver`,
-including the generic ones consumers derive from: `IJob`, `IJob<TRequest>`, `IJobStep`,
-`IJobStep<TRequest, TResult, TState>`, `IJobsManager`, `IJobObserver`, `IGrainWithBackgroundTask`,
-`IGrainWithBackgroundTask<TRequest, TResult>` and `IEventSourcedStateMachine`.
+including the generic ones consumers derive from. `Source/Orleans/OrleansContracts.txt` and
+`Source/Orleans.Chronicle/OrleansContracts.txt` list them all, with each one's current version.
 
 ### When you change a grain interface, within a major
 
@@ -58,12 +57,22 @@ public interface IJob : IGrainWithGuidCompoundKey
 - **Request, result, error and state types only gain members.** Renaming, retyping or removing a property, or changing a
   `[GenerateSerializer]` type's `[Id]` numbers, breaks a silo of the other release. Nothing checks this automatically.
 
-### No gate covers this repository yet
+### How this is checked
 
-Chronicle's **Grain Compatibility** workflow and Orleans contract analyzer cover only Chronicle's own grain interfaces;
-the interfaces here are outside them. Until this repository has its own check, this rule and review are the only
-protection, so:
+Each `OrleansContracts.txt` records every grain interface in its project, its version, each method's wire identity
+and every grain class. It is generated, never hand-edited. After changing a grain interface, regenerate it and review
+the diff:
 
-- State every grain interface change in the pull request description, as an `## Added` bullet naming the interface and
-  its new `[Version]`.
-- A change this rule forbids within a major goes out only in a pull request labeled `major`.
+```bash
+dotnet format Source/Orleans/Orleans.csproj analyzers --severity info --diagnostics ORLEANS0016 ORLEANS0017 ORLEANS0018 ORLEANS0019 ORLEANS0020 ORLEANS0022 ORLEANS0023 ORLEANS0024
+```
+
+Use `Source/Orleans.Chronicle/Orleans.Chronicle.csproj` for the state machine. A project that gains its first grain
+interface enables the analyzer the same way and is added to `CONTRACT_PROJECTS` in `grain-compatibility.yml`.
+
+- The Orleans contract analyzer fails the build when the source and the manifest disagree.
+- The **Grain Compatibility** workflow, run before every build and every publish, fails when a manifest is not purely
+  additive against the latest release. A pull request labeled `major` is exempt.
+- Neither looks inside request, result, error or state types, so review those by hand.
+- Name every grain interface change in the pull request description, as an `## Added` bullet naming the interface and
+  its new `[Version]`, so products built on this package can see it in the release notes.

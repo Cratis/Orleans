@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <AssemblyName>Cratis.Orleans.Tools.GrainCompatibility.Specs</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Tools.GrainCompatibility</RootNamespace>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks></TargetFrameworks>
+        <NoWarn>$(NoWarn);SA1600</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- The shared spec usings import Fundamentals namespaces. -->
+        <PackageReference Include="Cratis.Fundamentals" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../GrainCompatibility/GrainCompatibility.csproj" />
+    </ItemGroup>
+</Project>

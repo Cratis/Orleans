@@ -9,6 +9,17 @@
         <RepositoryType>git</RepositoryType>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <NoWarn>$(NoWarn);ORLEANS0010</NoWarn>
+        <!--
+            Products built on this package run rolling upgrades with silos of two of its releases in one cluster,
+            calling each other's grains. Orleans identifies a grain method on the wire by a hash of its declaring
+            interface, name and parameter types, so changing a signature makes it a different method the other
+            release cannot decode. OrleansContracts.txt records every grain interface, its [Version], each method's
+            wire identity and every grain class. The analyzer fails the build when the source drifts from it, and the
+            Grain Compatibility workflow fails when it drifts from the previous release in a way that is not additive.
+            See .cratis/ai/rules/project/grain-interfaces-only-grow-within-a-major.md.
+        -->
+        <EnableOrleansContractsAnalyzer>true</EnableOrleansContractsAnalyzer>
+        <WarningsAsErrors>$(WarningsAsErrors);ORLEANS0016;ORLEANS0017;ORLEANS0018;ORLEANS0019;ORLEANS0020;ORLEANS0021;ORLEANS0022;ORLEANS0023;ORLEANS0024;ORLEANS0025;ORLEANS0027</WarningsAsErrors>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.Orleans.Sdk" />

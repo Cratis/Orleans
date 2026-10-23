@@ -30,9 +30,15 @@ on:
       - "Directory.Build.targets"
       - ".github/package-smoke/**"
       - ".github/workflows/dotnet-build.yml"
+      - ".github/workflows/grain-compatibility.yml"
 
 jobs:
+  # Fails a change to a grain interface that silos of the latest release could not call during a rolling upgrade.
+  grain-compatibility:
+    uses: ./.github/workflows/grain-compatibility.yml
+
   build:
+    needs: [grain-compatibility]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The integration specs run the job system end to end against a real MongoDB.
