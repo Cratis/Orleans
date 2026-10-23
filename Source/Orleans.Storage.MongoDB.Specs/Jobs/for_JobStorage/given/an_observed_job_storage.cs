@@ -4,6 +4,7 @@
 using System.Reactive.Linq;
 using System.Threading.Channels;
 using Cratis.Arc;
+using Cratis.Arc.MongoDB;
 using Cratis.Arc.Queries;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
@@ -30,14 +31,13 @@ public class an_observed_job_storage : a_job_storage
 
     readonly WatchLogger _logger = new();
     readonly List<BsonDocument> _documents = [];
-    readonly Channel<BsonDocument> _changes = Channel.CreateUnbounded<BsonDocument>();
+    readonly SharedDatabaseChanges _changes = new();
     readonly Channel<JobState[]> _emissions = Channel.CreateUnbounded<JobState[]>();
     readonly TaskCompletionSource _unknownRejected = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    readonly TaskCompletionSource _watchDisposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     ArcApplication _application;
     IDisposable _subscription;
-    BsonDocument _watchFilter;
     JobState[] _latest = [];
+    volatile bool _awaitingUnknown;
 
     protected virtual Paging QueryPaging => Paging.NotPaged;
     protected virtual Sorting QuerySorting => Sorting.None;
@@ -48,7 +48,11 @@ public class an_observed_job_storage : a_job_storage
         var queryContextManager = Substitute.For<IQueryContextManager>();
         _queryContext = new QueryContext("Jobs", CorrelationId.New(), QueryPaging, QuerySorting);
         queryContextManager.Current.Returns(_queryContext);
-        var host = new HostBuilder().ConfigureServices(services => services.AddLogging(logging => logging.AddProvider(_logger)).AddSingleton(queryContextManager)).Build();
+
+        // Observations share the database's change stream through Arc's watcher; this one serves the changes pushed below.
+        var watcher = Substitute.For<IMongoDBWatcher>();
+        watcher.GetChanges(_database).Returns(_changes);
+        var host = new HostBuilder().ConfigureServices(services => services.AddLogging(logging => logging.AddProvider(_logger)).AddSingleton(queryContextManager).AddSingleton(watcher)).Build();
         _application = new ArcApplication(host, new ArcOptions());
         _firstJob.Created = new DateTimeOffset(2021, 1, 1, 0, 0, 0, TimeSpan.Zero);
         _secondJob.Created = new DateTimeOffset(2022, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -94,35 +98,41 @@ public class an_observed_job_storage : a_job_storage
                 documents = sort.Value.AsInt32 == 1 ? documents.OrderBy(document => document[sort.Name]) : documents.OrderByDescending(document => document[sort.Name]);
             }
             var states = documents.Skip(options.Skip ?? 0).Take(options.Limit ?? int.MaxValue).Select(document => BsonSerializer.Deserialize<TDocument>(document)).ToArray();
+
             var cursor = Substitute.For<IAsyncCursor<TDocument>>();
             cursor.Current.Returns(states);
-            cursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(true, false);
+
+            // A paged observation reads its page again after any change in the collection, so a read that follows an
+            // unknown insert is the observation having dealt with it.
+            var awaitingUnknown = _awaitingUnknown;
+            cursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(
+                _ => true,
+                _ =>
+                {
+                    if (awaitingUnknown)
+                    {
+                        _unknownRejected.TrySetResult();
+                    }
+                    return false;
+                });
             return cursor;
         });
 
-        var changeCursor = Substitute.For<IChangeStreamCursor<ChangeStreamDocument<TDocument>>>();
-        IEnumerable<ChangeStreamDocument<TDocument>> batch = [];
-        changeCursor.Current.Returns(_ => batch);
-        changeCursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(async call =>
+        // The shared stream carries every change in the database, so the observation asks the server whether a changed
+        // document belongs, by key and without reading it as a job. No match is how an unknown job type is skipped.
+        collection.FindAsync(Arg.Any<FilterDefinition<TDocument>>(), Arg.Any<FindOptions<TDocument, BsonDocument>>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
-            while (true)
+            var filter = RenderFilter(call.Arg<FilterDefinition<TDocument>>());
+            var matches = _documents.Where(document => Matches(filter, document)).Take(1).ToArray();
+            if (matches.Length == 0)
             {
-                var change = await _changes.Reader.ReadAsync(call.Arg<CancellationToken>());
-                if (!Matches(_watchFilter, change))
-                {
-                    _unknownRejected.TrySetResult();
-                    continue;
-                }
-                batch = [new ChangeStreamDocument<TDocument>(change, serializer)];
-                return true;
+                _unknownRejected.TrySetResult();
             }
-        });
-        changeCursor.When(cursor => cursor.Dispose()).Do(_ => _watchDisposed.TrySetResult());
-        collection.WatchAsync(Arg.Any<PipelineDefinition<ChangeStreamDocument<TDocument>, ChangeStreamDocument<TDocument>>>(), Arg.Any<ChangeStreamOptions>(), Arg.Any<CancellationToken>()).Returns(call =>
-        {
-            var pipeline = call.Arg<PipelineDefinition<ChangeStreamDocument<TDocument>, ChangeStreamDocument<TDocument>>>();
-            _watchFilter = pipeline.Render(new RenderArgs<ChangeStreamDocument<TDocument>>(new ChangeStreamDocumentSerializer<TDocument>(serializer), BsonSerializer.SerializerRegistry)).Documents.Single()["$match"].AsBsonDocument;
-            return changeCursor;
+
+            var cursor = Substitute.For<IAsyncCursor<BsonDocument>>();
+            cursor.Current.Returns(matches);
+            cursor.MoveNextAsync(Arg.Any<CancellationToken>()).Returns(true, false);
+            return cursor;
         });
     }
 
@@ -144,8 +154,10 @@ public class an_observed_job_storage : a_job_storage
     {
         var document = _unknownJob.DeepClone().AsBsonDocument;
         document["_id"] = new BsonBinaryData(Guid.NewGuid(), GuidRepresentation.Standard);
+        _awaitingUnknown = true;
         PushInsert(document);
         await _unknownRejected.Task.WaitAsync(Deadline);
+        _awaitingUnknown = false;
         _afterUnknown = _latest;
         _afterUnknownTotal = _queryContext.TotalItems;
     }
@@ -173,18 +185,21 @@ public class an_observed_job_storage : a_job_storage
     async Task Destroy()
     {
         _subscription?.Dispose();
-        await _watchDisposed.Task.WaitAsync(Deadline);
+        await _changes.Unsubscribed.WaitAsync(Deadline);
         await _application.DisposeAsync();
     }
 
     void PushInsert(BsonDocument document)
     {
         _documents.Add(document);
-        _changes.Writer.TryWrite(new BsonDocument
-        {
-            { "operationType", "insert" },
-            { "documentKey", new BsonDocument("_id", document["_id"]) },
-            { "fullDocument", document }
-        });
+        _changes.Push(new ChangeStreamDocument<BsonDocument>(
+            new BsonDocument
+            {
+                { "operationType", "insert" },
+                { "ns", new BsonDocument { { "db", DatabaseName }, { "coll", WellKnownCollectionNames.Jobs } } },
+                { "documentKey", new BsonDocument("_id", document["_id"]) },
+                { "fullDocument", document }
+            },
+            BsonSerializer.LookupSerializer<BsonDocument>()));
     }
 }
