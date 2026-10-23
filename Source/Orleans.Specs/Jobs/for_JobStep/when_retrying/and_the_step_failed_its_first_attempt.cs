@@ -25,7 +25,7 @@ public class and_the_step_failed_its_first_attempt : given.a_job_step_left_sched
     [Fact]
     async Task should_perform_the_step_again()
     {
-        var performed = await Task.WhenAny(_jobStep.Performed.Task, Task.Delay(TimeSpan.FromSeconds(5), TimeProvider.System));
+        var performed = await Task.WhenAny(_jobStep.Performed.Task, Task.Delay(TimeSpan.FromSeconds(5), TimeProvider.System, TestContext.Current.CancellationToken));
         performed.ShouldEqual(_jobStep.Performed.Task);
     }
 
