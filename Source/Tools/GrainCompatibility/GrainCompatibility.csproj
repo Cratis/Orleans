@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <!-- A build tool, not a package: packaging builds every project for every supported framework. -->
+        <TargetFrameworks></TargetFrameworks>
+        <OutputType>Exe</OutputType>
+        <IsPackable>false</IsPackable>
+        <AssemblyName>GrainCompatibility</AssemblyName>
+        <RootNamespace>Cratis.Orleans.Tools.GrainCompatibility</RootNamespace>
+        <NoWarn>$(NoWarn);SA1600</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="Cratis.Orleans.Tools.GrainCompatibility.Specs" />
+    </ItemGroup>
+</Project>
