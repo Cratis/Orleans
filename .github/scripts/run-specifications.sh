@@ -6,7 +6,7 @@
 # Usage: run-specifications.sh --self-test
 #        run-specifications.sh CONFIGURATION [--scope ordinary|integration|all] [--project PATH] [--results DIR]
 # Exit: 0 ran clean, 1 a project failed or its results are invalid, 2 could not run (preflight).
-# The canonical project inventory lives in compare-specifications.py.
+# The canonical project inventory lives in compare-specifications.mjs.
 
 set -uo pipefail
 
@@ -14,11 +14,11 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd) || exit 2
 if [[ ${1:-} == --self-test ]]; then
     exec node --test "$root/.github/scripts/run-specifications.test.mjs"
 fi
-if ! command -v python3 >/dev/null; then
-    echo "::error::python3 is required to validate specification TRX results"
+if ! command -v node >/dev/null; then
+    echo "::error::node is required to validate specification TRX results"
     exit 2
 fi
-inventory="$root/.github/scripts/compare-specifications.py"
+inventory="$root/.github/scripts/compare-specifications.mjs"
 
 configuration=${1:-Debug}
 shift || true
@@ -34,10 +34,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-python3 "$inventory" --check-inventory "$root" || exit 2
-rows=$(python3 "$inventory" --list-projects "$scope") || exit 2
+node "$inventory" --check-inventory "$root" || exit 2
+rows=$(node "$inventory" --list-projects "$scope") || exit 2
 if [[ -n $selected_project ]]; then
-    all_rows=$(python3 "$inventory" --list-projects all) || exit 2
+    all_rows=$(node "$inventory" --list-projects all) || exit 2
     selected_project=${selected_project#./}
     if ! printf '%s\n' "$rows" | grep -Fq "$selected_project"$'\t'; then
         if printf '%s\n' "$all_rows" | grep -Fq "$selected_project"$'\t'; then
@@ -95,7 +95,7 @@ for index in "${!paths[@]}"; do
         echo "::endgroup::"
         if [[ $status -ne 0 ]]; then
             echo "::error::$name exited with $status"
-        elif count=$(python3 "$inventory" --check-run "$out/$name.trx" --discovery "$out/discovery.txt" --project "$name"); then
+        elif count=$(node "$inventory" --check-run "$out/$name.trx" --discovery "$out/discovery.txt" --project "$name"); then
             total=$((total + count))
             echo "$name: $count tests"
         else

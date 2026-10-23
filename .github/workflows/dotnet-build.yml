@@ -33,8 +33,8 @@ on:
       - ".github/package-smoke/**"
       - ".github/scripts/run-specifications.sh"
       - ".github/scripts/run-specifications.test.mjs"
-      - ".github/scripts/compare-specifications.py"
-      - ".github/scripts/compare-specifications.test.py"
+      - ".github/scripts/compare-specifications.mjs"
+      - ".github/scripts/compare-specifications.test.mjs"
       - "Orleans.slnx"
       - "global.json"
       - ".github/workflows/dotnet-build.yml"
@@ -70,19 +70,28 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Cache NuGet packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/*.csproj', 'global.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      # Built once, in Release like publish (warnings as errors); every later step runs the built output.
       - name: Build
-        run: dotnet build --configuration Debug
+        run: dotnet build --configuration Release
 
       - name: Verify specification runner
         run: bash .github/scripts/run-specifications.sh --self-test
 
       - name: Verify specification parity comparison
-        run: python3 .github/scripts/compare-specifications.py --self-test
+        run: node .github/scripts/compare-specifications.mjs --self-test
 
       # The runner executes the eight xUnit v3 test programs one at a time and fails on a missing project, a missing
       # or empty result, or a nonzero exit, so a run that discovers nothing cannot pass. It never builds.
       - name: Run specifications (ordinary and integration)
-        run: bash .github/scripts/run-specifications.sh Debug --results TestResults/candidate
+        run: bash .github/scripts/run-specifications.sh Release --results TestResults/candidate
 
       # Temporary migration proof, removed once the pull request's CI evidence is captured: run the same eight
       # projects from the immutable pre-migration commit with the old runner, in an isolated checkout outside the
@@ -94,24 +103,24 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/orleans-baseline" rev-parse HEAD)" = "$BASELINE_SHA"
 
       - name: Build pre-migration source
-        run: dotnet build "$RUNNER_TEMP/orleans-baseline/Orleans.slnx" --configuration Debug
+        run: dotnet build "$RUNNER_TEMP/orleans-baseline/Orleans.slnx" --configuration Release
 
       - name: Run pre-migration specifications
         run: |
           set -euo pipefail
           baseline="$RUNNER_TEMP/orleans-baseline"
-          mapfile -t projects < <(python3 .github/scripts/compare-specifications.py --list-projects all | cut -f1)
+          mapfile -t projects < <(node .github/scripts/compare-specifications.mjs --list-projects all | cut -f1)
           test "${#projects[@]}" -eq 8
           for path in "${projects[@]}"; do
             name=$(basename "$path" .csproj)
             out="$PWD/TestResults/baseline/$name"
             mkdir -p "$out"
-            dotnet test "$baseline/$path" --configuration Debug --no-build --no-restore --list-tests > "$out/discovery.txt"
-            dotnet test "$baseline/$path" --configuration Debug --no-build --no-restore --logger "trx;LogFileName=$name.trx" --results-directory "$out"
+            dotnet test "$baseline/$path" --configuration Release --no-build --no-restore --list-tests > "$out/discovery.txt"
+            dotnet test "$baseline/$path" --configuration Release --no-build --no-restore --logger "trx;LogFileName=$name.trx" --results-directory "$out"
           done
 
       - name: Compare pre- and post-migration cases and outcomes
-        run: python3 .github/scripts/compare-specifications.py --baseline TestResults/baseline --candidate TestResults/candidate --scope all
+        run: node .github/scripts/compare-specifications.mjs --baseline TestResults/baseline --candidate TestResults/candidate --scope all
 
       - name: Verify packed Orleans dependencies for supported frameworks
         run: bash .github/package-smoke/verify.sh

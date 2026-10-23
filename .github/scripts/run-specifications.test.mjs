@@ -43,7 +43,7 @@ function fixture(t, options = {}) {
     t.after(() => rmSync(directory, { recursive: true }));
     const target = join(directory, '.github/scripts');
     mkdirSync(target, { recursive: true });
-    for (const file of ['run-specifications.sh', 'compare-specifications.py']) copyFileSync(join(scripts, file), join(target, file));
+    for (const file of ['run-specifications.sh', 'compare-specifications.mjs']) copyFileSync(join(scripts, file), join(target, file));
     const tools = join(directory, 'tools');
     mkdirSync(tools);
     const order = join(directory, 'order.log');
