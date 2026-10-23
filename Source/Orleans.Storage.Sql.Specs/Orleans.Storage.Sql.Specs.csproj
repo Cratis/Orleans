@@ -4,10 +4,12 @@
         <RootNamespace>Cratis.Orleans</RootNamespace>
         <IsTestProject>true</IsTestProject>
         <IsPackable>false</IsPackable>
-        <!-- The packaging build multi-targets every project in the solution, but the provider under
-             specification is net10.0 only because EF Core 10 is. Without this the restore fails on a
-             project reference that cannot resolve for net8.0 or net9.0, which breaks publishing. -->
-        <TargetFrameworks Condition="'$(IsPackaging)' == 'true'">net10.0</TargetFrameworks>
+        <!-- xUnit v3 test projects are executables -->
+        <OutputType>Exe</OutputType>
+        <!-- The provider under specification is net10.0 only because EF Core 10 is, and test projects always target
+             net10.0 only. The plural form overrides the packaging build's multi-targeting, which would otherwise
+             fail restore on a project reference that cannot resolve for net8.0 or net9.0. -->
+        <TargetFrameworks>net10.0</TargetFrameworks>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="../Orleans/Orleans.csproj" />

@@ -4,8 +4,9 @@
         <RootNamespace>Cratis.Orleans.Tools.GrainCompatibility</RootNamespace>
         <IsTestProject>true</IsTestProject>
         <IsPackable>false</IsPackable>
-        <TargetFramework>net10.0</TargetFramework>
-        <TargetFrameworks></TargetFrameworks>
+        <!-- xUnit v3 test projects are executables -->
+        <OutputType>Exe</OutputType>
+        <TargetFrameworks>net10.0</TargetFrameworks>
         <NoWarn>$(NoWarn);SA1600</NoWarn>
     </PropertyGroup>
 
