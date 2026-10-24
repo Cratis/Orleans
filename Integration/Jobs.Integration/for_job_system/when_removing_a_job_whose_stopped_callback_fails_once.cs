@@ -27,7 +27,7 @@ public class when_removing_a_job_whose_stopped_callback_fails_once : Specificati
         // The first report of the stop finds the stopped callback failing; the step reports again, and that finishes it.
         await _fixture.Signals.JobStopped.Task.WaitAsync(DrainingClusterFixture.Deadline, TimeProvider.System);
         _steps = await WaitForTheStepToBeRemoved(jobId);
-        _job = await _fixture.GetJobState(jobId);
+        _job = await WaitForTheJobToBeRemoved(jobId);
     }
 
     [Fact] void should_accept_the_removal() => _removed.IsSuccess.ShouldBeTrue();
@@ -36,6 +36,23 @@ public class when_removing_a_job_whose_stopped_callback_fails_once : Specificati
     [Fact] void should_remove_the_step() => _steps.ShouldBeEmpty();
 
     void Destroy() => _fixture.Dispose();
+
+    async Task<Catch<JobState, Storage.Jobs.JobError>> WaitForTheJobToBeRemoved(JobId jobId)
+    {
+        var deadline = TimeProvider.System.GetUtcNow() + DrainingClusterFixture.Deadline;
+        Catch<JobState, Storage.Jobs.JobError> job;
+        do
+        {
+            job = await _fixture.GetJobState(jobId);
+            if (job.TryGetError(out var error) && error is Storage.Jobs.JobError.NotFound)
+            {
+                return job;
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(50), TimeProvider.System);
+        }
+        while (TimeProvider.System.GetUtcNow() <= deadline);
+        return job;
+    }
 
     async Task<IEnumerable<JobStepState>> WaitForTheStepToBeRemoved(JobId jobId)
     {
