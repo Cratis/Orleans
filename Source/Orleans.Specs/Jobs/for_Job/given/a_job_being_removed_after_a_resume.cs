@@ -3,7 +3,6 @@
 
 using System.Reflection;
 using Cratis.Monads;
-using Cratis.Orleans.Jobs.Observation;
 using Microsoft.Extensions.Logging;
 using Orleans.TestKit;
 using Orleans.Utilities;
@@ -41,16 +40,15 @@ public class a_job_being_removed_after_a_resume : a_job_being_removed_with_two_s
     protected async Task ReactivateFrom(SomeJobState state, ILogger<Job<SomeRequest, SomeJobState>>? logger = null)
     {
         _silo = new();
-        _observers = Substitute.For<IJobStepObservers>();
-        _notifiableSteps.Clear();
         ConfigureSilo();
         if (logger is not null)
         {
             _silo.AddService(logger);
         }
+        var key = new JobStepKey(_jobId, _jobKey.Scope, _jobKey.Namespace);
         foreach (var step in _storedJobStepStates)
         {
-            AddJobStep(step.Id.JobStepId);
+            _silo.AddProbe<ISomeJobStep>(step.Id.JobStepId, keyExtension: key);
         }
         _silo.StorageManager.GetStorage<SomeJobState>(typeof(SomeJob).FullName!).State = CopyState(state);
         _job = await _silo.CreateGrainAsync<SomeJob>(_jobId, _jobKey);
