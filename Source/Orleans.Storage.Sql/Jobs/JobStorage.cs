@@ -154,17 +154,26 @@ public class JobStorage(
             {
                 jobs = jobs.Where(job => query.Statuses.Contains(job.Status));
             }
-            if (query.CreatedBefore is { } createdBefore)
+            List<Job> rows;
+            if (dbContext.Database.IsSqlite())
             {
-                jobs = jobs.Where(job => job.Created < createdBefore);
+                rows = await GetPageOnSqlite(dbContext, jobs, query);
             }
+            else
+            {
+                if (query.CreatedBefore is { } createdBefore)
+                {
+                    jobs = jobs.Where(job => job.Created < createdBefore);
+                }
 
-            jobs = jobs.OrderBy(job => job.Created).ThenBy(job => job.Id).Skip(Math.Max(0, query.Skip));
-            if (query.Take > 0)
-            {
-                jobs = jobs.Take(query.Take);
+                jobs = jobs.OrderBy(job => job.Created).ThenBy(job => job.Id).Skip(Math.Max(0, query.Skip));
+                if (query.Take > 0)
+                {
+                    jobs = jobs.Take(query.Take);
+                }
+                rows = await jobs.ToListAsync();
             }
-            return (await jobs.ToListAsync()).Where(IsRegistered).Select(job => job.ToJobState(_jsonSerializerOptions)).ToImmutableList();
+            return rows.Where(IsRegistered).Select(job => job.ToJobState(_jsonSerializerOptions)).ToImmutableList();
         }
         catch (Exception ex)
         {
@@ -352,6 +361,31 @@ public class JobStorage(
         {
             return ex;
         }
+    }
+
+    static async Task<List<Job>> GetPageOnSqlite(JobsDbContext dbContext, IQueryable<Job> filtered, JobQuery query)
+    {
+        // SQLite stores DateTimeOffset as offset-preserving TEXT: server comparison/ordering is unsupported,
+        // and text order differs from instant order. Keep the format for existing databases during rolling upgrades.
+        var keys = await filtered.Select(job => new { job.Id, job.Created }).ToListAsync();
+        var page = keys.Where(key => query.CreatedBefore is null || key.Created < query.CreatedBefore)
+            .OrderBy(key => key.Created)
+            .ThenBy(key => key.Id)
+            .Skip(Math.Max(0, query.Skip));
+        if (query.Take > 0)
+        {
+            page = page.Take(query.Take);
+        }
+
+        var ids = page.Select(key => key.Id).ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        var rows = await dbContext.Jobs.Where(job => ids.Contains(job.Id)).ToListAsync();
+        var positions = ids.Select((id, index) => (id, index)).ToDictionary(position => position.id, position => position.index);
+        return rows.OrderBy(job => positions[job.Id]).ToList();
     }
 
     static JsonSerializerOptions WithJobStateConverter(JsonSerializerOptions source, IJobTypes jobTypes)

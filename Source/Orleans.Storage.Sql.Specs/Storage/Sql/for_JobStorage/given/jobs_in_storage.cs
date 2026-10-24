@@ -52,6 +52,15 @@ public class jobs_in_storage : a_sqlite_jobs_database
         await context.SaveChangesAsync();
     }
 
+    protected static JobState RegisteredJob(JobId id, JobStatus status, DateTimeOffset created) => new()
+    {
+        Id = id,
+        Type = KnownJobType,
+        Status = status,
+        Created = created,
+        Request = new KnownRequest("paged job")
+    };
+
     protected Job ToEntity(JobState state) => state.ToEntity(_serializerOptions);
 
     public record KnownRequest(string Message) : IJobRequest;
