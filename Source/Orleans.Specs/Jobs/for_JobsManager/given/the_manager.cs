@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System.Collections.Immutable;
+using System.Reactive.Subjects;
 using System.Reflection;
 using Cratis.Monads;
 using Cratis.Orleans.Storage;
@@ -11,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
+using OneOf.Types;
 using Orleans.TestKit;
 
 using Catch = Cratis.Monads.Catch;
@@ -37,13 +39,16 @@ public class the_manager : Specification
     {
         _storedJobs = [];
         _jobsStorage = Substitute.For<IJobsStorage>();
-        _jobStorage = Substitute.For<IJobStorage>();
+        _jobStorage = Substitute.For<job_storage>();
         _jobStepStorage = Substitute.For<IJobStepStorage>();
         _jobTypes = Substitute.For<IJobTypes>();
         _jobsStorage.GetFor(Arg.Any<string>(), Arg.Any<string>()).Returns(new JobsStorage(_jobStorage, _jobStepStorage));
         _jobTypes.GetClrTypeFor(Arg.Any<JobType>()).Returns(Result.Failed<Type, IJobTypes.GetClrTypeForError>(IJobTypes.GetClrTypeForError.CouldNotFindType));
 
         _jobStorage.GetJobs(Arg.Any<JobStatus[]>()).Returns(_ => Task.FromResult(Catch.Success<IImmutableList<JobState>>([.. _storedJobs])));
+
+        // Deliberately unfiltered: the manager must still drop finalized stops itself, whatever the provider returns.
+        _jobStorage.GetJobsExcludingFinalizedStops(Arg.Any<JobStatus[]>()).Returns(_ => Task.FromResult(Catch.Success<IImmutableList<JobState>>([.. _storedJobs])));
         _jobStorage.GetJobs(Arg.Any<JobQuery>()).Returns(callInfo =>
         {
             var query = callInfo.Arg<JobQuery>();
@@ -88,6 +93,23 @@ public class the_manager : Specification
             await _manager.OnDeactivateAsync(new DeactivationReason(DeactivationReasonCode.None, string.Empty), CancellationToken.None);
         }
         _applicationStopping.Dispose();
+    }
+
+    /// <summary>
+    /// Lets Castle proxy the default interface method without a target instance.
+    /// </summary>
+    public abstract class job_storage : IJobStorage
+    {
+        public abstract Task<Catch<JobState, Storage.Jobs.JobError>> GetJob(JobId jobId);
+        public abstract Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses);
+        public abstract Task<Catch<IImmutableList<JobState>>> GetJobsExcludingFinalizedStops(params JobStatus[] statuses);
+        public abstract Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query);
+        public abstract Catch<ISubject<IEnumerable<JobState>>> ObserveJobs(params JobStatus[] statuses);
+        public abstract Task<Catch> Remove(JobId jobId);
+        public abstract Task<Catch<bool>> RemoveTerminal(JobId jobId);
+        public abstract Task<Catch<TJobState, Storage.Jobs.JobError>> Read<TJobState>(JobId jobId);
+        public abstract Task<Catch<None, Storage.Jobs.JobError>> Save<TJobState>(JobId jobId, TJobState state);
+        public abstract Task<Catch<IImmutableList<TJobState>, Storage.Jobs.JobError>> GetJobs<TJobType, TJobState>(params JobStatus[] statuses);
     }
 
     protected virtual JobsOptions CreateOptions() => new();

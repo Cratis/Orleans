@@ -12,6 +12,6 @@ public class when_rehydrating_after_the_host_has_stopped : given.a_controlled_ba
     async Task Because() => _error = await Catch.Exception(_manager.Rehydrate);
 
     [Fact] void should_cancel_the_drain() => (_error is OperationCanceledException).ShouldBeTrue();
-    [Fact] void should_not_query_job_storage() => _jobStorage.DidNotReceive().GetJobs(Arg.Any<JobStatus[]>());
+    [Fact] void should_not_query_job_storage() => _jobStorage.DidNotReceive().GetJobsExcludingFinalizedStops(Arg.Any<JobStatus[]>());
     [Fact] void should_not_resume_any_jobs() => _resumed.ShouldBeEmpty();
 }

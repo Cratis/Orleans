@@ -46,6 +46,22 @@ public interface IJobStorage
     Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses);
 
     /// <summary>
+    /// Get all jobs with the given statuses, leaving out stopped jobs whose stop has been finalized.
+    /// </summary>
+    /// <param name="statuses">Optional params of <see cref="JobStatus"/> to filter on.</param>
+    /// <returns>A collection of job state objects.</returns>
+    /// <remarks>
+    /// Only jobs that are <see cref="JobStatus.Stopped"/> with <see cref="JobState.StopFinalized"/> set are left out;
+    /// a <see cref="JobStatus.Removing"/> job is kept. The compatibility fallback filters what
+    /// <see cref="GetJobs(JobStatus[])"/> returns, so it costs the same as reading every stopped job. Providers should
+    /// override this to filter in storage, before the jobs are deserialized.
+    /// </remarks>
+    async Task<Catch<IImmutableList<JobState>>> GetJobsExcludingFinalizedStops(params JobStatus[] statuses) =>
+        (await GetJobs(statuses)).Match<Catch<IImmutableList<JobState>>>(
+            jobs => jobs.Where(job => !(job.Status is JobStatus.Stopped && job.StopFinalized)).ToImmutableList(),
+            exception => exception);
+
+    /// <summary>
     /// Gets one bounded page of jobs selected by storage-side filters.
     /// </summary>
     /// <param name="query">The type, status, age, and page selection.</param>

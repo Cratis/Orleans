@@ -726,6 +726,25 @@ A custom job storage provider must persist that property. A job stopped by a ver
 finalized, so `OnStopped` runs once more for it on the first rehydration after the upgrade; it must tolerate that,
 as it already must for a drain that completes after its silo went away.
 
+### Rehydration reads leave finalized stops out in storage
+
+Rehydration reads jobs through `IJobStorage.GetJobsExcludingFinalizedStops`, which leaves out stopped jobs whose stop
+is finalized. The MongoDB, PostgreSQL, MySQL/MariaDB, SQL Server and SQLite providers do that in storage, before a job
+is deserialized. The in-memory provider filters before building its result. A pass therefore avoids materializing
+finalized stops, rather than reading every job ever stopped.
+
+Upgrading from a version before 1.26.0 has one-time costs:
+
+- The first rehydration activates every stored stopped job once, runs `OnStopped` and records the finalized stop. The
+  cost grows with the number of stored stopped jobs and is bounded by `JobsOptions.MaxConcurrentRehydration` (default
+  8). Later passes skip those jobs.
+- MongoDB builds the `status_stopFinalized` index in the background the first time the jobs storage reads. No SQL
+  migration is needed.
+
+A custom provider keeps working without changes: the interface default reads `GetJobs` and filters the result, which
+costs what the read cost before. Override `GetJobsExcludingFinalizedStops` to filter in storage. Leave out only jobs that
+are `Stopped` with `StopFinalized` set; a `Removing` job stays in the result.
+
 ### A removal finishes even when a report or the final step fails
 
 A step being removed deletes its own record once the job has stored its stop. Until then it keeps its record and

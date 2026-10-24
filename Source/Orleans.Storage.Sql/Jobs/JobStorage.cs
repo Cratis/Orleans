@@ -4,10 +4,14 @@
 using System.Collections.Immutable;
 using System.Reactive.Subjects;
 using System.Text.Json;
+using Cratis.Arc.EntityFrameworkCore;
 using Cratis.Monads;
 using Cratis.Orleans.Jobs;
 using Cratis.Orleans.Storage.Jobs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using OneOf.Types;
@@ -99,6 +103,38 @@ public class JobStorage(
             // This read (also used by ObserveJobs) has no paging or counting. Check each row before
             // converting its request, including when a custom registry cannot enumerate its types.
             return jobs.Where(IsRegistered).Select(j => j.ToJobState(_jsonSerializerOptions)).ToImmutableList();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<Catch<IImmutableList<JobState>>> GetJobsExcludingFinalizedStops(params JobStatus[] statuses)
+    {
+        try
+        {
+            await using var dbContext = contextFactory();
+            var predicate = GetFinalizedStopPredicate(dbContext, out var table);
+            if (predicate is null)
+            {
+                // No storage-side predicate for this provider: read, then leave the finalized stops out.
+                var all = await GetJobs(statuses);
+                return all.Match<Catch<IImmutableList<JobState>>>(
+                    jobs => jobs.Where(job => !(job.Status is JobStatus.Stopped && job.StopFinalized)).ToImmutableList(),
+                    exception => exception);
+            }
+
+            var sql = $"SELECT * FROM {table} WHERE {predicate}";
+            var query = dbContext.Jobs.FromSqlRaw(sql);
+            if (statuses.Length > 0)
+            {
+                query = query.Where(j => statuses.Contains(j.Status));
+            }
+
+            var rows = await query.ToListAsync();
+            return rows.Where(IsRegistered).Select(j => j.ToJobState(_jsonSerializerOptions)).ToImmutableList();
         }
         catch (Exception ex)
         {
@@ -335,6 +371,34 @@ public class JobStorage(
         var derived = new JsonSerializerOptions(source);
         derived.Converters.Add(new JobStateConverter(jobTypes));
         return derived;
+    }
+
+    static string? GetFinalizedStopPredicate(JobsDbContext dbContext, out string table)
+    {
+        var entity = dbContext.Model.FindEntityType(typeof(Job))!;
+        var tableName = entity.GetTableName()!;
+        var schema = entity.GetSchema();
+        var store = StoreObjectIdentifier.Table(tableName, schema);
+        var helper = dbContext.GetService<ISqlGenerationHelper>();
+        table = helper.DelimitIdentifier(tableName, schema);
+
+        var databaseType = GetDatabaseType(dbContext);
+        var status = helper.DelimitIdentifier(entity.FindProperty(nameof(Job.Status))!.GetColumnName(store)!);
+        var state = helper.DelimitIdentifier(entity.FindProperty(nameof(Job.StateJson))!.GetColumnName(store)!);
+        return FinalizedStopFilter.For(databaseType, status, state);
+    }
+
+    static DatabaseType GetDatabaseType(JobsDbContext dbContext)
+    {
+        try
+        {
+            return dbContext.Database.GetDatabaseType();
+        }
+        catch (UnsupportedDatabaseType)
+        {
+            // A provider this storage has no predicate for reads through the fallback.
+            return DatabaseType.Unknown;
+        }
     }
 
     bool IsRegistered(Job job)

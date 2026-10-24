@@ -17,7 +17,7 @@ public class when_rehydrating_while_preparation_is_in_progress : given.a_control
     void Establish()
     {
         _discovery = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        _jobStorage.GetJobs(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Stopped, JobStatus.Removing).Returns(_discovery.Task);
+        _jobStorage.GetJobsExcludingFinalizedStops(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Stopped, JobStatus.Removing).Returns(_discovery.Task);
     }
 
     async Task Because()
@@ -32,6 +32,6 @@ public class when_rehydrating_while_preparation_is_in_progress : given.a_control
     }
 
     [Fact] void should_finish_preparation_before_returning() => _bothWaitedForDiscovery.ShouldBeTrue();
-    [Fact] void should_only_discover_the_backlog_once() => _jobStorage.Received(1).GetJobs(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Stopped, JobStatus.Removing);
+    [Fact] void should_only_discover_the_backlog_once() => _jobStorage.Received(1).GetJobsExcludingFinalizedStops(JobStatus.Running, JobStatus.PreparingJob, JobStatus.PreparingSteps, JobStatus.StartingSteps, JobStatus.Stopped, JobStatus.Removing);
     [Fact] void should_only_resume_each_job_once() => _resumed.OrderBy(id => id.Value).SequenceEqual(_jobIds.OrderBy(id => id.Value)).ShouldBeTrue();
 }

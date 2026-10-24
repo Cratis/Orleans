@@ -39,18 +39,10 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
         _jobs.TryGetValue(jobId, out var job) ? job.Type : JobError.NotFound);
 
     /// <inheritdoc/>
-    public Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses)
-    {
-        try
-        {
-            var jobs = FilterByStatus(_jobs.Values, statuses).ToImmutableList();
-            return Task.FromResult<Catch<IImmutableList<JobState>>>(jobs);
-        }
-        catch (Exception ex)
-        {
-            return Task.FromResult<Catch<IImmutableList<JobState>>>(ex);
-        }
-    }
+    public Task<Catch<IImmutableList<JobState>>> GetJobs(params JobStatus[] statuses) => ReadJobs(statuses, false);
+
+    /// <inheritdoc/>
+    public Task<Catch<IImmutableList<JobState>>> GetJobsExcludingFinalizedStops(params JobStatus[] statuses) => ReadJobs(statuses, true);
 
     /// <inheritdoc/>
     public Task<Catch<IImmutableList<JobState>>> GetJobs(JobQuery query)
@@ -201,6 +193,22 @@ public sealed class JobStorage(IJobTypes jobTypes) : IJobStorage, IDisposable
         statuses.Length == 0 ? jobs : jobs.Where(_ => statuses.Contains(_.Status));
 
     static bool IsTerminal(JobStatus status) => status is JobStatus.CompletedSuccessfully or JobStatus.CompletedWithFailures or JobStatus.Failed;
+
+    Task<Catch<IImmutableList<JobState>>> ReadJobs(JobStatus[] statuses, bool excludeFinalizedStops)
+    {
+        try
+        {
+            var jobs = FilterByStatus(_jobs.Values, statuses);
+            var result = excludeFinalizedStops
+                ? jobs.Where(job => !(job.Status is JobStatus.Stopped && job.StopFinalized))
+                : jobs;
+            return Task.FromResult<Catch<IImmutableList<JobState>>>(result.ToImmutableList());
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<Catch<IImmutableList<JobState>>>(ex);
+        }
+    }
 
     void PublishSnapshot() => _subject.OnNext([.. _jobs.Values]);
 }
