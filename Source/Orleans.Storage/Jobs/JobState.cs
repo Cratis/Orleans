@@ -74,6 +74,16 @@ public class JobState
     public IList<JobStepId> StoppedStepsCounted { get; set; } = [];
 
     /// <summary>
+    /// Gets or sets the steps whose success or failure was counted in an execution begun by a resume or reopen.
+    /// </summary>
+    /// <remarks>
+    /// Entries are kept across resumes and CompletedWithFailures, and removed only when RetryFailed uncounts that
+    /// failure. Custom storage providers must persist this list. State saved without it reads as empty.
+    /// A never-resumed job records no entries.
+    /// </remarks>
+    public IList<JobStepId> CompletedStepsCounted { get; set; } = [];
+
+    /// <summary>
     /// Gets or sets the complete step plan saved before preparing any step.
     /// </summary>
     /// <remarks>

@@ -136,6 +136,7 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
                 DrainPending = State.DrainPending,
                 StopFinalized = State.StopFinalized,
                 StoppedStepsCounted = State.StoppedStepsCounted.ToList(),
+                CompletedStepsCounted = State.CompletedStepsCounted.ToList(),
                 StepPlan = State.StepPlan?.ToList(),
                 Progress = State.Progress with { Stages = State.Progress.Stages.Select(stage => stage with { }).ToList() }
             });
