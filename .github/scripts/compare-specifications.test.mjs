@@ -151,11 +151,27 @@ test('discovery must match execution total', t => {
     assert.throws(f.run, parity(/discovery listed 2 tests but the TRX holds 3/));
 });
 
-test('discovery change with same count is rejected', t => {
+test('readable and underscore display names with the same class and method are equal', t => {
     const f = fixture(t);
     f.populate(BASE);
-    f.writeRun('candidate', 'Orleans.Specs', BASE, { trxName: 'x.trx', discoveryCases: [...BASE.slice(0, 2), ['B.when_y', 'renamed', 'NotExecuted']] });
-    assert.throws(f.run, parity(/discovery differs/));
+    const readable = BASE.map(([c, m, o]) => [c, m, o, `${c.replace(/_/g, ' ')} ${m.replace(/_/g, ' ')}`]);
+    f.writeRun('candidate', 'Orleans.Specs', readable, { trxName: 'x.trx', discoveryCases: readable.map(([, , , d]) => ['readable', d]) });
+    assert.equal(f.run().get('Orleans.Specs'), 3);
+});
+
+test('extra case in candidate is rejected', t => {
+    const f = fixture(t);
+    f.populate(BASE);
+    const more = [...BASE, ['B.when_y', 'should_extra', 'Passed']];
+    f.writeRun('candidate', 'Orleans.Specs', more, { trxName: 'x.trx' });
+    assert.throws(f.run, parity(/case added in candidate: B\.when_y\.should_extra/));
+});
+
+test('discovery multiplicity differing between sides is rejected', t => {
+    const f = fixture(t);
+    f.populate(BASE);
+    writeFileSync(join(f.dir, 'candidate/Orleans.Specs/discovery.txt'), discovery([...BASE, BASE[0]]));
+    assert.throws(f.run, parity(/discovery listed 4 tests but the TRX holds 3/));
 });
 
 test('missing discovery is rejected', t => {

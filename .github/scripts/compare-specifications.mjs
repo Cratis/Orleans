@@ -231,10 +231,6 @@ function loadRun(directory, project) {
     return { outcomes, discovery };
 }
 
-const subtract = (left, right) => sorted([...left].flatMap(([name, count]) => Array(Math.max(0, count - (right.get(name) ?? 0))).fill(name)));
-const sameCounter = (left, right) => left.size === right.size && [...left].every(([name, count]) => right.get(name) === count);
-const show = values => `[${values.map(value => `'${value}'`).join(', ')}]`;
-
 function compareProject(project, baseline, candidate) {
     const base = loadRun(baseline, project);
     const cand = loadRun(candidate, project);
@@ -252,10 +248,10 @@ function compareProject(project, baseline, candidate) {
             problems.push(`${project}: outcome changed for ${identity}: ${before[0]} -> ${after[0]}`);
         }
     }
-    if (!sameCounter(base.discovery, cand.discovery)) {
-        const removed = subtract(base.discovery, cand.discovery).slice(0, 5);
-        const added = subtract(cand.discovery, base.discovery).slice(0, 5);
-        problems.push(`${project}: discovery differs: removed=${show(removed)} added=${show(added)}`);
+    // Discovery lists display names, which differ between xUnit/Specifications generations, so only its
+    // multiplicity is compared; identity parity comes from the TRX class and method of every case.
+    if (total(base.discovery) !== total(cand.discovery)) {
+        problems.push(`${project}: discovery differs: baseline listed ${total(base.discovery)} tests, candidate ${total(cand.discovery)}`);
     }
     if (problems.length) throw new ParityError(problems.join('\n'));
     return base.outcomes.size;

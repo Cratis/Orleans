@@ -137,6 +137,8 @@ test('runs exactly one selected project', t => {
 test('rejects an unknown project and one outside the scope before running anything', async t => {
     for (const [args, message] of [
         [['Debug', '--project', 'Source/Other.Specs/Other.Specs.csproj'], /Unknown specification project/],
+        [['Debug', '--project', 'Source/Orleans.Specs'], /Unknown specification project/],
+        [['Debug', '--project', 'Orleans.Specs/Orleans.Specs.csproj'], /Unknown specification project/],
         [['Debug', '--scope', 'ordinary', '--project', 'Integration/Jobs.Integration/Jobs.Integration.csproj'], /outside scope 'ordinary'/]
     ]) {
         await t.test(args.join(' '), child => {

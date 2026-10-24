@@ -39,15 +39,16 @@ rows=$(node "$inventory" --list-projects "$scope") || exit 2
 if [[ -n $selected_project ]]; then
     all_rows=$(node "$inventory" --list-projects all) || exit 2
     selected_project=${selected_project#./}
-    if ! printf '%s\n' "$rows" | grep -Fq "$selected_project"$'\t'; then
-        if printf '%s\n' "$all_rows" | grep -Fq "$selected_project"$'\t'; then
+    exact() { printf '%s\n' "$1" | awk -F'\t' -v p="$selected_project" '$1 == p'; }
+    if [[ -z $(exact "$rows") ]]; then
+        if [[ -n $(exact "$all_rows") ]]; then
             echo "::error::Project is outside scope '$scope': $selected_project"
         else
             echo "::error::Unknown specification project: $selected_project"
         fi
         exit 2
     fi
-    rows=$(printf '%s\n' "$rows" | grep -F "$selected_project"$'\t')
+    rows=$(exact "$rows")
 fi
 if [[ -z $rows ]]; then
     echo "::error::No specification projects selected"
