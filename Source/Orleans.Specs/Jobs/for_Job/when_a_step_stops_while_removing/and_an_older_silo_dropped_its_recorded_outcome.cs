@@ -9,6 +9,7 @@ public class and_an_older_silo_dropped_its_recorded_outcome : given.a_job_being_
     {
         await ReportSuccessFromCurrentRun();
         var state = _job.WrittenStates[^1];
+
         // An older silo rewrites the state without the additive member. The deleted successful step cannot
         // reconstruct its identity from aggregate progress, so mixed clusters offer reduced protection.
         state.CompletedStepsCounted = [];

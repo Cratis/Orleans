@@ -3,6 +3,8 @@
 
 using System.Reflection;
 using Cratis.Monads;
+using Cratis.Orleans.Jobs.Observation;
+using Microsoft.Extensions.Logging;
 using Orleans.TestKit;
 using Orleans.Utilities;
 
@@ -36,13 +38,40 @@ public class a_job_being_removed_after_a_resume : a_job_being_removed_with_two_s
         observers.Subscribe(_stepId, _currentRun);
     }
 
-    protected async Task ReactivateFrom(SomeJobState state)
+    protected async Task ReactivateFrom(SomeJobState state, ILogger<Job<SomeRequest, SomeJobState>>? logger = null)
     {
         _silo = new();
+        _observers = Substitute.For<IJobStepObservers>();
+        _notifiableSteps.Clear();
         ConfigureSilo();
-        _silo.StorageManager.GetStorage<SomeJobState>(typeof(SomeJob).FullName!).State = state;
+        if (logger is not null)
+        {
+            _silo.AddService(logger);
+        }
+        foreach (var step in _storedJobStepStates)
+        {
+            AddJobStep(step.Id.JobStepId);
+        }
+        _silo.StorageManager.GetStorage<SomeJobState>(typeof(SomeJob).FullName!).State = CopyState(state);
         _job = await _silo.CreateGrainAsync<SomeJob>(_jobId, _jobKey);
     }
+
+    static SomeJobState CopyState(SomeJobState state) => new()
+    {
+        Id = state.Id,
+        Details = state.Details,
+        Type = state.Type,
+        Created = state.Created,
+        Status = state.Status,
+        Request = state.Request,
+        StatusChanges = state.StatusChanges.ToList(),
+        DrainPending = state.DrainPending,
+        StopFinalized = state.StopFinalized,
+        StoppedStepsCounted = state.StoppedStepsCounted.ToList(),
+        CompletedStepsCounted = state.CompletedStepsCounted.ToList(),
+        StepPlan = state.StepPlan?.ToList(),
+        Progress = state.Progress with { Stages = state.Progress.Stages.Select(stage => stage with { }).ToList() }
+    };
 
     protected Task<Result<JobError>> ReportStopFromEarlierExecution() => ReportedIn(EarlierGeneration, () => _job.OnStepStopped(_stepId, Stopped));
 

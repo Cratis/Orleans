@@ -6,13 +6,16 @@ namespace Cratis.Orleans.Jobs.for_Job.when_a_step_stops_while_removing;
 public class and_its_replacement_success_is_saved_before_reactivation : given.a_job_being_removed_after_a_resume
 {
     int _clearsBeforeSecondStop;
+    given.SomeJobState _savedState;
 
     async Task Establish()
     {
         await ReportStopFromEarlierExecution();
         await ReportSuccessFromCurrentRun();
-        _job.WrittenStates[^1].StoppedStepsCounted.ShouldBeEmpty();
-        await ReactivateFrom(_job.WrittenStates[^1]);
+        _savedState = _job.WrittenStates[^1];
+        _savedState.StoppedStepsCounted.ShouldBeEmpty();
+        _storedJobStepStates.Remove(StoredJobStep(_stepId));
+        await ReactivateFrom(_savedState);
     }
 
     async Task Because()
@@ -27,4 +30,7 @@ public class and_its_replacement_success_is_saved_before_reactivation : given.a_
     [Fact] void should_keep_the_success() => _job.CurrentState.Progress.SuccessfulSteps.ShouldEqual(1);
     [Fact] void should_count_only_the_other_stop() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(1);
     [Fact] void should_not_handle_the_replayed_outcome() => _job.HandledStepResults.ShouldContainOnly(_secondStepId);
+    [Fact] void should_not_mutate_the_previous_activations_saved_progress() => _savedState.Progress.StoppedSteps.ShouldEqual(0);
+    [Fact] void should_not_mutate_the_previous_activations_saved_stops() => _savedState.StoppedStepsCounted.ShouldBeEmpty();
+    [Fact] void should_not_share_the_previous_activations_record() => ReferenceEquals(_job.CurrentState.CompletedStepsCounted, _savedState.CompletedStepsCounted).ShouldBeFalse();
 }

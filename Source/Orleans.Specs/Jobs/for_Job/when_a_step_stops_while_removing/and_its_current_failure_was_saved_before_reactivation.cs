@@ -7,6 +7,7 @@ public class and_its_current_failure_was_saved_before_reactivation : given.a_job
 {
     async Task Establish()
     {
+        StoredJobStep(_stepId).Status = JobStepStatus.Failed;
         await ReportFailureFromCurrentRun();
         await ReactivateFrom(_job.WrittenStates[^1]);
     }
