@@ -21,7 +21,7 @@ public class and_the_persisted_state_says_scheduled_from_a_dead_process : given.
     [Fact]
     async Task should_perform_the_step_again()
     {
-        var performed = await Task.WhenAny(_jobStep.Performed.Task, Task.Delay(TimeSpan.FromSeconds(5), TimeProvider.System));
+        var performed = await Task.WhenAny(_jobStep.Performed.Task, Task.Delay(TimeSpan.FromSeconds(5), TimeProvider.System, TestContext.Current.CancellationToken));
         performed.ShouldEqual(_jobStep.Performed.Task);
     }
 }

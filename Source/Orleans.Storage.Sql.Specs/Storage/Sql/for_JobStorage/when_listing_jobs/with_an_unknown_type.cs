@@ -22,7 +22,7 @@ public class with_an_unknown_type : given.jobs_in_storage
     [Fact] async Task should_leave_all_stored_jobs_untouched()
     {
         await using var context = CreateContext();
-        (await context.Jobs.CountAsync()).ShouldEqual(4);
-        (await context.Jobs.SingleAsync(job => job.Id == _unknownJob.Id)).StateJson.ShouldEqual(_unknownJob.StateJson);
+        (await context.Jobs.CountAsync(TestContext.Current.CancellationToken)).ShouldEqual(4);
+        (await context.Jobs.SingleAsync(job => job.Id == _unknownJob.Id, TestContext.Current.CancellationToken)).StateJson.ShouldEqual(_unknownJob.StateJson);
     }
 }

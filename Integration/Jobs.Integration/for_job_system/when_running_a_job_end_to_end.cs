@@ -48,7 +48,7 @@ public class when_running_a_job_end_to_end : Specification
     {
         _jobId.Value.ShouldNotEqual(Guid.Empty);
         _jobState.ShouldNotBeNull();
-        _jobState!.Status.ShouldEqual(JobStatus.CompletedSuccessfully);
+        _jobState.Status.ShouldEqual(JobStatus.CompletedSuccessfully);
         _jobState.Progress.SuccessfulSteps.ShouldEqual(3);
     }
 }
