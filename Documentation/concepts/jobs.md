@@ -730,7 +730,7 @@ as it already must for a drain that completes after its silo went away.
 ### Rehydration reads leave finalized stops out in storage
 
 Rehydration reads jobs through `IJobStorage.GetJobsExcludingFinalizedStops`, which leaves out stopped jobs whose stop
-is finalized. The MongoDB, PostgreSQL, MySQL/MariaDB, SQL Server and SQLite providers do that in storage, before a job
+is finalized. The MongoDB, PostgreSQL, SQL Server and SQLite providers do that in storage, before a job
 is deserialized. The in-memory provider filters before building its result. A pass therefore avoids materializing
 finalized stops, rather than reading every job ever stopped.
 
