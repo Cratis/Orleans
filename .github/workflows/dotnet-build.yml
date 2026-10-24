@@ -47,12 +47,22 @@ jobs:
     needs: [grain-compatibility]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The integration specs run the job system end to end against a real MongoDB.
+    env:
+      CRATIS_ORLEANS_SPECS_POSTGRESQL: "Host=localhost;Port=5432;Username=postgres;Database=postgres"
+    # Integration specs use real MongoDB, PostgreSQL and SQL Server instances.
     services:
       mongodb:
         image: mongo:7
         ports:
           - 27017:27017
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
 
     permissions:
       contents: read
@@ -76,6 +86,13 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
+      - name: Start SQL Server
+        run: |
+          password="$(openssl rand -hex 16)Aa1!"
+          echo "::add-mask::$password"
+          docker run -d --name mssql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$password" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          echo "CRATIS_ORLEANS_SPECS_SQLSERVER=Server=localhost,1433;User Id=sa;Password=$password;TrustServerCertificate=True;Encrypt=False" >> "$GITHUB_ENV"
+
       # Built once, in Release like publish (warnings as errors); every later step runs the built output.
       - name: Build
         run: dotnet build --configuration Release
@@ -85,6 +102,17 @@ jobs:
 
       - name: Verify specification parity comparison
         run: node .github/scripts/compare-specifications.mjs --self-test
+
+      - name: Wait for SQL Server
+        run: |
+          for _ in $(seq 90); do
+            if docker logs mssql 2>&1 | grep -q 'SQL Server is now ready for client connections'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs --tail 50 mssql
+          exit 1
 
       # The runner executes the eight xUnit v3 test programs one at a time and fails on a missing project, a missing
       # or empty result, or a nonzero exit, so a run that discovers nothing cannot pass. It never builds.
