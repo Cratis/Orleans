@@ -21,7 +21,11 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        var (ignored, attempt, _) = await IgnoreStepOutcome(stepId, stopped: false);
+        var (ignored, attempt, _, unsaved) = await IgnoreStepOutcome(stepId, stopped: false);
+        if (unsaved is { } error)
+        {
+            return error;
+        }
         if (ignored)
         {
             return Result.Success<JobError>();
@@ -40,7 +44,11 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepStopped(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        var (ignored, _, ofEarlierExecution) = await IgnoreStepOutcome(stepId, stopped: true);
+        var (ignored, _, ofEarlierExecution, unsaved) = await IgnoreStepOutcome(stepId, stopped: true);
+        if (unsaved is { } error)
+        {
+            return error;
+        }
         if (ignored)
         {
             return Result.Success<JobError>();
@@ -63,7 +71,11 @@ public abstract partial class Job<TRequest, TJobState>
     public async Task<Result<JobError>> OnStepFailed(JobStepId stepId, JobStepResult jobStepResult)
     {
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        var (ignored, attempt, _) = await IgnoreStepOutcome(stepId, stopped: false);
+        var (ignored, attempt, _, unsaved) = await IgnoreStepOutcome(stepId, stopped: false);
+        if (unsaved is { } error)
+        {
+            return error;
+        }
         if (ignored)
         {
             return Result.Success<JobError>();
@@ -275,6 +287,10 @@ public abstract partial class Job<TRequest, TJobState>
         State.Progress.SuccessfulSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedSuccessfully);
         State.Progress.FailedSteps = steps.Count(_ => _.Status is JobStepStatus.CompletedWithFailure or JobStepStatus.Failed);
         State.Progress.UnreachableSteps = steps.Count(_ => _.Status is JobStepStatus.Unreachable);
+        foreach (var step in steps.Where(step => IsDone(step.Status)))
+        {
+            OutcomeCounted(step.Id.JobStepId);
+        }
         CountStopsFrom(countStopped ? steps : []);
         State.Progress.Stages = JobStages.Reconcile(steps, State.Progress.Stages);
         TrackStagesOf(steps);

@@ -36,6 +36,14 @@ public class a_job_being_removed_after_a_resume : a_job_being_removed_with_two_s
         observers.Subscribe(_stepId, _currentRun);
     }
 
+    protected async Task ReactivateFrom(SomeJobState state)
+    {
+        _silo = new();
+        ConfigureSilo();
+        _silo.StorageManager.GetStorage<SomeJobState>(typeof(SomeJob).FullName!).State = state;
+        _job = await _silo.CreateGrainAsync<SomeJob>(_jobId, _jobKey);
+    }
+
     protected Task<Result<JobError>> ReportStopFromEarlierExecution() => ReportedIn(EarlierGeneration, () => _job.OnStepStopped(_stepId, Stopped));
 
     protected Task<Result<JobError>> ReportStopFromCurrentRun() => ReportedIn(CurrentGeneration, () => _job.OnStepStopped(_stepId, Stopped));

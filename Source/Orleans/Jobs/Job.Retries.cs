@@ -50,15 +50,15 @@ public abstract partial class Job<TRequest, TJobState>
                 return Result.Success<int, RetryFailedStepsError>(0);
             }
 
-            var progress = State.Progress with { };
+            var counted = (Progress: State.Progress with { }, Outcomes: State.CompletedStepsCounted.ToList());
             var written = await WriteOrUndo(() =>
             {
-                State.Progress.FailedSteps = Math.Max(0, State.Progress.FailedSteps - failed.Count);
+                UncountFailures(failed);
                 StatusChanged(JobStatus.Running);
             });
             if (written.TryGetException(out _))
             {
-                State.Progress = progress;
+                (State.Progress, State.CompletedStepsCounted) = counted;
                 DeactivateOnIdleDuringShutdown();
                 return Result.Failed<int, RetryFailedStepsError>(RetryFailedStepsError.CouldNotPersist);
             }

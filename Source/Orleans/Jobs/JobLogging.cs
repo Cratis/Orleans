@@ -245,6 +245,12 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Information, "Step {StepId} failed; attempt {Attempt} is scheduled in {Delay}")]
     internal static partial void SchedulingStepRetry(this ILogger<IJob> logger, JobStepId stepId, int attempt, TimeSpan delay);
 
+    [LoggerMessage(LogLevel.Debug, "The outcome of step {StepId} was already counted, but could not be saved; the step reports it again")]
+    internal static partial void CountedOutcomeNotSaved(this ILogger<IJob> logger, JobStepId stepId);
+
+    [LoggerMessage(LogLevel.Warning, "Job has recorded {Count} counted step outcomes after a resume; its stored state grows with each one and very large jobs can exceed the storage provider's document size limit")]
+    internal static partial void ManyCountedOutcomesRecorded(this ILogger<IJob> logger, int count);
+
     [LoggerMessage(LogLevel.Debug, "Step {StepId} reported an outcome of the removed execution after the stop of an earlier execution was counted; taking the stop back")]
     internal static partial void UncountingStopOfEarlierExecution(this ILogger<IJob> logger, JobStepId stepId);
 

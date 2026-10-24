@@ -7,8 +7,16 @@ namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
+    /// <summary>
+    /// The number of recorded outcomes at which to warn about stored state size, without limiting the record.
+    /// </summary>
+    internal const int CountedOutcomesWarningThreshold = 100_000;
+
     readonly HashSet<JobStepId> _stepsToRestartAfterEarlierStop = [];
     readonly HashSet<JobStepId> _outcomesCounted = [];
+    HashSet<JobStepId> _recordedOutcomes = [];
+    IList<JobStepId>? _recordedOutcomesSource;
+    bool _warnedAboutCountedOutcomes;
     IGrainTimer? _restartStepsTimer;
 
     /// <summary>
@@ -17,7 +25,7 @@ public abstract partial class Job<TRequest, TJobState>
     /// <param name="stepId">The <see cref="JobStepId"/> of the reporting step.</param>
     /// <param name="stopped">Whether the step reports that it stopped.</param>
     /// <returns>Whether the outcome is ignored, and the attempt it was reported for.</returns>
-    async Task<(bool Ignored, int Attempt, bool OfEarlierExecution)> IgnoreStepOutcome(JobStepId stepId, bool stopped)
+    async Task<(bool Ignored, int Attempt, bool OfEarlierExecution, JobError? Unsaved)> IgnoreStepOutcome(JobStepId stepId, bool stopped)
     {
         // Read and removed first, so neither the generation nor the attempt flows into the hooks and stages the outcome
         // leads to. Only a generation the step reported counts: one it merely inherited from its job's call says nothing
@@ -25,16 +33,17 @@ public abstract partial class Job<TRequest, TJobState>
         var attempt = JobStepAttempt.TakeReported();
         var generation = JobExecutionGeneration.TakeReported();
         var ofEarlierExecution = generation is { } reported && reported < ExecutionGeneration();
-        return (await IgnoreStepOutcome(stepId, stopped, attempt, generation), attempt, ofEarlierExecution);
+        var (ignored, unsaved) = await IgnoreStepOutcome(stepId, stopped, attempt, generation);
+        return (ignored, attempt, ofEarlierExecution, unsaved);
     }
 
-    async Task<bool> IgnoreStepOutcome(JobStepId stepId, bool stopped, int attempt, long? generation)
+    async Task<(bool Ignored, JobError? Unsaved)> IgnoreStepOutcome(JobStepId stepId, bool stopped, int attempt, long? generation)
     {
         // A drain took this step's outcome from the step itself; the step's own report of it counts nothing.
         if (_accountedByDrain.Contains(stepId))
         {
             _logger.IgnoringOutcomeAccountedForByDrain(stepId);
-            return true;
+            return (true, null);
         }
 
         // A step delivers its outcome until it is acknowledged, so the same outcome can arrive again: once for each
@@ -42,7 +51,7 @@ public abstract partial class Job<TRequest, TJobState>
         if (!stopped && IsDuplicateOutcome(stepId, attempt))
         {
             _logger.IgnoringDuplicateOutcome(stepId, attempt);
-            return true;
+            return (true, null);
         }
 
         if (generation is { } reported && reported < ExecutionGeneration())
@@ -54,26 +63,79 @@ public abstract partial class Job<TRequest, TJobState>
             {
                 _logger.IgnoringStopOfEarlierExecution(stepId, reported);
                 RestartAfterEarlierStop(stepId);
-                return true;
+                return (true, null);
             }
 
             // Success and failure are facts whatever the execution, and are counted as they always were while the job
-            // runs - unless this activation already counted this step's outcome, which must not count twice.
-            if (_jobStepGrains?.ContainsKey(stepId) != true && _outcomesCounted.Contains(stepId))
+            // runs - unless this step's outcome was already counted, in this activation or durably before it.
+            if (_jobStepGrains?.ContainsKey(stepId) != true && OutcomeWasCounted(stepId))
             {
-                _logger.IgnoringOutcomeOfEarlierExecution(stepId, reported);
-                return true;
+                return (true, await SaveCountedOutcomeIfNeeded(stepId, reported));
             }
         }
 
-        return await IgnoreLateStepOutcome(stepId);
+        return (await IgnoreLateStepOutcome(stepId), null);
+    }
+
+    async Task<JobError?> SaveCountedOutcomeIfNeeded(JobStepId stepId, long generation)
+    {
+        if (_stateMayBeUnsaved && (await WriteState()).TryGetException(out _))
+        {
+            _logger.CountedOutcomeNotSaved(stepId);
+            return JobError.PersistStateError;
+        }
+        _logger.IgnoringOutcomeOfEarlierExecution(stepId, generation);
+        return null;
     }
 
     /// <summary>
-    /// Remember that this activation counted a step's success or failure.
+    /// Remember a counted outcome, persisting it for executions that began with a resume or reopen.
     /// </summary>
     /// <param name="stepId">The <see cref="JobStepId"/> of the step.</param>
-    void OutcomeCounted(JobStepId stepId) => _outcomesCounted.Add(stepId);
+    void OutcomeCounted(JobStepId stepId)
+    {
+        _outcomesCounted.Add(stepId);
+        if (!RecordsCountedOutcomes() || !RecordedOutcomes().Add(stepId))
+        {
+            return;
+        }
+        State.CompletedStepsCounted.Add(stepId);
+        if (!_warnedAboutCountedOutcomes && State.CompletedStepsCounted.Count >= CountedOutcomesWarningThreshold)
+        {
+            _warnedAboutCountedOutcomes = true;
+            _logger.ManyCountedOutcomesRecorded(State.CompletedStepsCounted.Count);
+        }
+    }
+
+    bool RecordsCountedOutcomes()
+    {
+        var generation = ExecutionGeneration();
+        return generation > 0 && State.StatusChanges[(int)generation - 1].Status is JobStatus.Running;
+    }
+
+    HashSet<JobStepId> RecordedOutcomes()
+    {
+        if (!ReferenceEquals(_recordedOutcomesSource, State.CompletedStepsCounted))
+        {
+            _recordedOutcomesSource = State.CompletedStepsCounted;
+            _recordedOutcomes = [.. _recordedOutcomesSource];
+        }
+        return _recordedOutcomes;
+    }
+
+    bool OutcomeWasCounted(JobStepId stepId) => _outcomesCounted.Contains(stepId) || RecordedOutcomes().Contains(stepId);
+
+    void UncountFailures(IReadOnlyCollection<JobStepState> failed)
+    {
+        State.Progress.FailedSteps = Math.Max(0, State.Progress.FailedSteps - failed.Count);
+        foreach (var step in failed)
+        {
+            var stepId = step.Id.JobStepId;
+            _outcomesCounted.Remove(stepId);
+            RecordedOutcomes().Remove(stepId);
+            State.CompletedStepsCounted.Remove(stepId);
+        }
+    }
 
     /// <summary>
     /// Counts the stopped steps of the current execution from the steps' own records, replacing what was counted.

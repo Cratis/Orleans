@@ -309,7 +309,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
             _logger.Resuming();
             var stoppedSteps = State.Progress.StoppedSteps;
-            var stopsCounted = State.StoppedStepsCounted;
+            var countedSteps = (Stopped: State.StoppedStepsCounted, Completed: State.CompletedStepsCounted.ToList());
 
             // The new execution has counted no stops; that is written with it, so no activation can mistake a stop of
             // the new execution for one it already counted.
@@ -319,7 +319,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             if (!await TryWriteStatusChanged(JobStatus.Running))
             {
                 State.Progress.StoppedSteps = stoppedSteps;
-                State.StoppedStepsCounted = stopsCounted;
+                (State.StoppedStepsCounted, State.CompletedStepsCounted) = countedSteps;
                 if (stoppedProgress is not null)
                 {
                     State.Progress = stoppedProgress;
@@ -331,13 +331,13 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
 
-            if (!await TryRunResumeHook(stoppedProgress, stopsCounted))
+            if (!await TryRunResumeHook(stoppedProgress, countedSteps.Stopped, countedSteps.Completed))
             {
                 return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown);
             }
 
             // Only a successful hook begins dispatch. Until then, late drained reports must stay accounted for.
-            // _outcomesCounted is kept: bounded by the step count, it stops a drained or earlier-counted success from counting twice.
+            // _outcomesCounted is kept, backed by the durable record across activations, so an earlier-counted outcome cannot count twice.
             _accountedByDrain.Clear();
             _started.Clear();
             _inFlight.Clear();
