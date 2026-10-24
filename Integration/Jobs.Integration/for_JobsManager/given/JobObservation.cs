@@ -118,6 +118,31 @@ public static class JobObservation
     }
 
     /// <summary>
+    /// Waits until every step of the job is gone from storage.
+    /// </summary>
+    /// <param name="storage">The storage to read from.</param>
+    /// <param name="jobId">The job whose steps to read.</param>
+    /// <returns>The empty job step states.</returns>
+    /// <exception cref="TimeoutException">Thrown when job steps were still there when the deadline passed.</exception>
+    public static async Task<IImmutableList<JobStepState>> WaitTillJobStepsAreDeleted(this IJobStepStorage storage, JobId jobId)
+    {
+        var deadline = TimeProvider.System.GetUtcNow() + Timeout;
+        var steps = await storage.GetJobSteps(jobId);
+        while (steps.Count > 0)
+        {
+            if (TimeProvider.System.GetUtcNow() > deadline)
+            {
+                throw new TimeoutException($"The job steps for '{jobId}' were still in storage.");
+            }
+
+            await Task.Delay(50).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            steps = await storage.GetJobSteps(jobId);
+        }
+
+        return steps;
+    }
+
+    /// <summary>
     /// Reads a job, or null when it is not there.
     /// </summary>
     /// <param name="storage">The storage to read from.</param>

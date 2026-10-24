@@ -113,7 +113,8 @@ public abstract partial class Job<TRequest, TJobState>
     /// <returns>The outcome of starting the steps in the first stage.</returns>
     /// <remarks>
     /// Later stages report their start failures through the job rather than to the caller of
-    /// <see cref="Start"/>, so the result describes the first stage alone.
+    /// <see cref="Start"/>, so the result describes the first stage, except that a job that keeps running in a later
+    /// stage is never reported as having started nothing.
     /// </remarks>
     async Task<Result<StartJobError>> StartFirstStage(GrainId grainId)
     {
@@ -124,8 +125,10 @@ public abstract partial class Job<TRequest, TJobState>
 
         var first = State.Progress.Stages[0];
         var result = await StartStage(grainId, first);
-        await AdvanceStagesAfter(first, checkAdmission: false);
-        return result;
+        var laterStageRunning = await AdvanceStagesAfter(first, checkAdmission: false);
+        return laterStageRunning && result.TryGetError(out var error) && error is StartJobError.AllJobStepsFailedStarting
+            ? StartJobError.FailedStartingSomeJobSteps
+            : result;
     }
 
     async Task<Result<StartJobError>> StartStage(GrainId grainId, JobStageProgress stage)
@@ -147,13 +150,20 @@ public abstract partial class Job<TRequest, TJobState>
     {
         if (StageOf(stepId) is { } stage)
         {
-            await AdvanceStagesAfter(stage, checkAdmission: true);
+            _ = await AdvanceStagesAfter(stage, checkAdmission: true);
         }
     }
 
-    async Task AdvanceStagesAfter(JobStageProgress stage, bool checkAdmission)
+    /// <summary>
+    /// Advance past completed stages until a stage is running or no further stage can start.
+    /// </summary>
+    /// <param name="stage">The stage to advance past.</param>
+    /// <param name="checkAdmission">Whether to ask the owner before starting the next stage.</param>
+    /// <returns>True if a later stage started at least one step, false otherwise.</returns>
+    async Task<bool> AdvanceStagesAfter(JobStageProgress stage, bool checkAdmission)
     {
         var grainId = this.GetGrainId();
+        var laterStageRunning = false;
 
         // A stage whose steps all fail to start completes the moment it starts, so keep going until a stage is
         // actually running or there is nothing left to start.
@@ -161,19 +171,21 @@ public abstract partial class Job<TRequest, TJobState>
         {
             if (await StopAtFailedBarrier() || State.Progress.Stages.Current() is not { } next)
             {
-                return;
+                return laterStageRunning;
             }
 
             // A later stage is a new beginning of work, so the owner is asked once more; a job that is only being
             // picked up again was asked as part of that.
             if (checkAdmission && !await AdmitNextStage())
             {
-                return;
+                return laterStageRunning;
             }
 
-            _ = await StartStage(grainId, next);
+            var result = await StartStage(grainId, next);
+            laterStageRunning |= !result.TryGetError(out var error) || error is StartJobError.FailedStartingSomeJobSteps;
             stage = next;
         }
+        return laterStageRunning;
     }
 
     /// <summary>
@@ -218,7 +230,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             await RunDispatchHook(initializationMayBeIncomplete: false);
             _ = await StartStage(this.GetGrainId(), current);
-            await AdvanceStagesAfter(current, checkAdmission: false);
+            _ = await AdvanceStagesAfter(current, checkAdmission: false);
         }
 
         _ = await HandleCompletionResult(await HandleCompletion());

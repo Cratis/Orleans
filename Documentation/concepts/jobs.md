@@ -104,8 +104,9 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
   `JobStageFailureBehavior.ContinueWithNextStage` for a stage that is best-effort.
 - Every step is still prepared up front, so preparing a step in a later stage cannot observe what an earlier
   stage did. Read anything it needs from an earlier stage when the step is performed.
-- `Start` returns once the first stage is running, and its errors describe that stage. Later stages report
-  their start failures through the job.
+- `Start` returns once the first stage is running, and its errors describe that stage. When no step of the first
+  stage starts but the stage continues on failure and a later stage starts, `Start` returns
+  `FailedStartingSomeJobSteps`, because the job is running. Later stages report their start failures through the job.
 - On resume the job picks up at the stage it had reached, and the stages behind it wait their turn.
 
 ## Jobs are placed where there is capacity
@@ -150,7 +151,7 @@ public class TenantJobs(IJobs jobs)
 Start returns the job identity only when the job accepts the request; inspect `StartJobError` on refusal.
 Success means started, not completed. If you supply an identity with `Start(key, jobId, request)`, duplicate
 starts retain the job's existing refusal behavior rather than starting another plan.
-`FailedStartingSomeJobSteps` means the job keeps running until its remaining steps finish, with steps that failed to start counted as failed; it does not mean the job did not start.
+`FailedStartingSomeJobSteps` means the job keeps running until its remaining steps finish, with steps that failed to start counted as failed; it does not mean the job did not start. `AllJobStepsFailedStarting` means no step started and the job is not running.
 
 Stop and delete read only the stored job type, so an unreadable request from a newer release does not hide
 which release owns the job. Match their nested result records:
@@ -777,7 +778,9 @@ When finishing the removal fails - `OnStopped` throws, clearing the job fails, o
 answers the step's report with an error, so the step's next report runs the finish again. Once every step has
 reported, no report is left to do that, so the job also retries the finish itself on a timer: after 1 second,
 doubling the delay up to 60 seconds, until the job is cleared. The timer keeps the job's activation alive between
-attempts and does not use reminders. If the silo goes away, rehydration finishes the removal instead. Calling
+attempts and does not use reminders. While a step still has to be told about the removal, for example the current
+run of a step whose earlier stop was counted, each retry tells it again and the timer stays armed until the removal
+finishes. If the silo goes away, rehydration finishes the removal instead. Calling
 `Remove()` on a job that is already being removed also runs the finish again once no step is left to report. It
 answers `RemoveJobError.JobIsAlreadyBeingRemoved`, or `RemoveJobError.Unknown` when the finish failed again.
 `OnStopped` can therefore run more than once for a removal whose finish failed, so it must tolerate that. A job
