@@ -778,7 +778,9 @@ When finishing the removal fails - `OnStopped` throws, clearing the job fails, o
 answers the step's report with an error, so the step's next report runs the finish again. Once every step has
 reported, no report is left to do that, so the job also retries the finish itself on a timer: after 1 second,
 doubling the delay up to 60 seconds, until the job is cleared. The timer keeps the job's activation alive between
-attempts and does not use reminders. If the silo goes away, rehydration finishes the removal instead. Calling
+attempts and does not use reminders. While a step still has to be told about the removal, for example the current
+run of a step whose earlier stop was counted, each retry tells it again and the timer stays armed until the removal
+finishes. If the silo goes away, rehydration finishes the removal instead. Calling
 `Remove()` on a job that is already being removed also runs the finish again once no step is left to report. It
 answers `RemoveJobError.JobIsAlreadyBeingRemoved`, or `RemoveJobError.Unknown` when the finish failed again.
 `OnStopped` can therefore run more than once for a removal whose finish failed, so it must tolerate that. A job

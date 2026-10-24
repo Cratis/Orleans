@@ -16,6 +16,7 @@ public abstract partial class Job<TRequest, TJobState>
     /// Its callback is an ordinary grain turn, so it never interleaves with a step's report that finishes the removal.
     /// Only one is armed at a time; a timer belongs to its activation and goes away with it, after which rehydration
     /// takes the removal over.
+    /// The retry is also kept armed while a step that is accounted for still has to be told about the removal.
     /// </remarks>
     void ScheduleRemovalRetry()
     {
@@ -47,7 +48,11 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         using var scope = _logger.BeginJobScope(JobId, JobKey);
-        await StopNonCompletedStepsAndEnsureCompletion(true);
+        var result = await StopNonCompletedStepsAndEnsureCompletion(true);
+        if (result is null && State.Progress is { IsCompleted: true } or { IsStopped: true })
+        {
+            ScheduleRemovalRetry();
+        }
     }
 
     void ClearRemovalRetry()
