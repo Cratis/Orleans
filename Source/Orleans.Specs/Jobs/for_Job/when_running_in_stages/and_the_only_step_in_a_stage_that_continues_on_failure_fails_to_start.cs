@@ -18,7 +18,8 @@ public class and_the_only_step_in_a_stage_that_continues_on_failure_fails_to_sta
 
     async Task Because() => _result = await _job.Start(new());
 
-    [Fact] void should_report_that_the_first_stage_failed_starting() => ((StartJobError)_result).ShouldEqual(StartJobError.AllJobStepsFailedStarting);
+    [Fact] void should_report_that_the_job_started_with_failed_steps() => ((StartJobError)_result).ShouldEqual(StartJobError.FailedStartingSomeJobSteps);
     [Fact] void should_start_the_next_stage() => ShouldHaveStarted(_secondStepA);
     [Fact] void should_be_running() => _job.CurrentState.Status.ShouldEqual(JobStatus.Running);
+    [Fact] void should_count_the_step_that_failed_to_start_as_failed() => _job.CurrentState.Progress.FailedSteps.ShouldEqual(1);
 }

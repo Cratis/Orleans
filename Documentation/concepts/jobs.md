@@ -104,8 +104,9 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
   `JobStageFailureBehavior.ContinueWithNextStage` for a stage that is best-effort.
 - Every step is still prepared up front, so preparing a step in a later stage cannot observe what an earlier
   stage did. Read anything it needs from an earlier stage when the step is performed.
-- `Start` returns once the first stage is running, and its errors describe that stage. Later stages report
-  their start failures through the job.
+- `Start` returns once the first stage is running, and its errors describe that stage. When no step of the first
+  stage starts but the stage continues on failure and a later stage starts, `Start` returns
+  `FailedStartingSomeJobSteps`, because the job is running. Later stages report their start failures through the job.
 - On resume the job picks up at the stage it had reached, and the stages behind it wait their turn.
 
 ## Jobs are placed where there is capacity
@@ -150,7 +151,7 @@ public class TenantJobs(IJobs jobs)
 Start returns the job identity only when the job accepts the request; inspect `StartJobError` on refusal.
 Success means started, not completed. If you supply an identity with `Start(key, jobId, request)`, duplicate
 starts retain the job's existing refusal behavior rather than starting another plan.
-`FailedStartingSomeJobSteps` means the job keeps running until its remaining steps finish, with steps that failed to start counted as failed; it does not mean the job did not start.
+`FailedStartingSomeJobSteps` means the job keeps running until its remaining steps finish, with steps that failed to start counted as failed; it does not mean the job did not start. `AllJobStepsFailedStarting` means no step started and the job is not running.
 
 Stop and delete read only the stored job type, so an unreadable request from a newer release does not hide
 which release owns the job. Match their nested result records:

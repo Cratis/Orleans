@@ -20,11 +20,12 @@ public enum StartJobError
 
     /// <summary>
     /// Some job steps failed to start and count as failed; the job keeps running until its remaining steps finish.
+    /// Also returned when no step in the first stage starts, but that stage continues on failure and a later stage starts.
     /// </summary>
     FailedStartingSomeJobSteps = 2,
 
     /// <summary>
-    /// None of the jobs was started.
+    /// No step of the job started, so the job is not running.
     /// </summary>
     AllJobStepsFailedStarting = 3,
 
