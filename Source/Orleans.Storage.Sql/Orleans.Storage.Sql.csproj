@@ -22,6 +22,7 @@
     </ItemGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Cratis.Orleans.Storage.Sql.Specs" />
+        <InternalsVisibleTo Include="Cratis.Orleans.Jobs.Integration" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="../Orleans/Orleans.csproj" />
