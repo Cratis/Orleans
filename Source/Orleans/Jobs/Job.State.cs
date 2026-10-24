@@ -6,6 +6,8 @@ namespace Cratis.Orleans.Jobs;
 
 public abstract partial class Job<TRequest, TJobState>
 {
+    bool _stateMayBeUnsaved;
+
     /// <summary>
     /// Writes persisted state.
     /// </summary>
@@ -16,6 +18,7 @@ public abstract partial class Job<TRequest, TJobState>
         try
         {
             await WriteStateAsync();
+            _stateMayBeUnsaved = false;
             if (State.Status is not (JobStatus.Stopped or JobStatus.Removing))
             {
                 ClearStepNotificationRetries();
@@ -29,6 +32,7 @@ public abstract partial class Job<TRequest, TJobState>
         }
         catch (Exception e)
         {
+            _stateMayBeUnsaved = true;
             _logger.FailedWritingState(e);
             return e;
         }

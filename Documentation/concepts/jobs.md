@@ -72,6 +72,28 @@ twice belongs behind a check the performer itself makes. Progress checkpoints ar
 [Options](../reference/options.md)), so a crash between checkpoints re-delivers every batch handled since -
 an at-least-once relaxation, not a free one.
 
+## Counted outcomes survive reactivation after resume
+
+After a resume or `RetryFailed` reopens an execution, the job records the exact step identities whose
+terminal outcomes it counts in `JobState.CompletedStepsCounted`. It saves the record with progress and
+keeps it across subsequent resumes and activations. A delayed stop from an earlier execution cannot then
+count the same step again during removal, even after a successful step has deleted its own state. Retrying
+a counted failure deliberately removes that step's record along with its failed count; its new terminal
+outcome is recorded when counted. Stops remain separate in `StoppedStepsCounted`.
+
+Jobs that have never resumed or reopened record an **empty list**. For resumed or reopened jobs the record
+grows with counted outcomes; it has no hard entry limit. Measured serialization overhead is about **27.89
+bytes per entry in BSON** and **39 bytes per entry in JSON**. At 100,000 entries the job logs a warning;
+recording continues. Large resumed jobs can approach MongoDB's 16 MiB document limit (or the limit of
+another storage provider), especially when their other state is large.
+
+Custom storage providers must persist and restore `CompletedStepsCounted`, defaulting it to an empty
+list for older state. During a rolling upgrade, older silos do not understand this member and may drop it
+when rewriting a job. Protection is reduced while versions share a cluster: outcomes dropped by an older
+silo cannot be reconstructed from aggregate progress or from successful steps whose state was deleted.
+The durable protection applies to outcomes recorded and retained by upgraded silos; upgrading does not
+recover an already lost record.
+
 ## One failed step does not abandon the rest
 
 A job that could not do one piece of work has still done the others, and the job's history says which was

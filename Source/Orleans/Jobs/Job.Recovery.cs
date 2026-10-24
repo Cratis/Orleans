@@ -12,7 +12,7 @@ public abstract partial class Job<TRequest, TJobState>
     static bool IsAlreadyStarted(Result<StartJobStepError> result) =>
         result.TryGetError(out var error) && error is StartJobStepError.AlreadyStarted;
 
-    async Task<bool> TryRunResumeHook(JobProgress? stoppedProgress, IList<JobStepId> stopsCounted)
+    async Task<bool> TryRunResumeHook(JobProgress? stoppedProgress, IList<JobStepId> stopsCounted, IList<JobStepId> outcomesRecorded)
     {
         try
         {
@@ -29,6 +29,7 @@ public abstract partial class Job<TRequest, TJobState>
             {
                 State.Progress = stoppedProgress;
                 State.StoppedStepsCounted = stopsCounted;
+                State.CompletedStepsCounted = outcomesRecorded;
                 if (!(await WriteStatusChanged(JobStatus.Stopped, exception)).IsSuccess)
                 {
                     // Compensation may or may not be durable. Do not let restored counters serve a persisted
