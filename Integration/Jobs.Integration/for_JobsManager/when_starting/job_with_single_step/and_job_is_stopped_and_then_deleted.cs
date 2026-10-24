@@ -27,7 +27,7 @@ public class and_job_is_stopped_and_then_deleted(context context) : Given<contex
             await JobStorage.WaitTillJobProgressStopped(JobId);
             await JobsManager.Delete(JobId);
             await JobStorage.WaitTillJobIsDeleted(JobId);
-            JobSteps = await JobStepStorage.GetJobSteps(JobId);
+            JobSteps = await JobStepStorage.WaitTillJobStepsAreDeleted(JobId);
         }
     }
 

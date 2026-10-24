@@ -25,7 +25,7 @@ public class and_job_is_deleted(context context) : Given<context>(context)
             await JobsManager.Delete(JobId);
             taskCompletionSource.SetResult();
             await JobStorage.WaitTillJobIsDeleted(JobId);
-            JobSteps = await JobStepStorage.GetJobSteps(JobId);
+            JobSteps = await JobStepStorage.WaitTillJobStepsAreDeleted(JobId);
         }
     }
 
