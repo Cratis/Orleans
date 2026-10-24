@@ -59,6 +59,55 @@ builder.AddCratisOrleans(new CratisOrleansOptions
 });
 ```
 
+## Place job controllers and step workers separately
+
+By default Orleans places jobs and steps using resource-optimized placement. To dedicate silos to controlling
+jobs or to performing steps, opt in on the silo builder:
+
+```csharp
+builder.UseOrleans(silo =>
+{
+    silo.AddJobPlacement<JobControllerDirector>();
+    silo.AddJobStepPlacement<JobWorkerDirector>();
+    silo.UseJobStepParallelismFromSiloMetadata();
+});
+```
+
+`AddJobPlacement()` and `AddJobStepPlacement()` without a director type keep the cluster's default placement
+for that kind of grain, and `AddJobPlacement<TDirector>()` and `AddJobStepPlacement<TDirector>()` replace it
+with your own `IPlacementDirector`. Directors choose among the compatible silos; this one reads silo
+metadata published with `UseSiloMetadata`:
+
+```csharp
+using Cratis.Orleans.Jobs.Placement;
+using Orleans.Runtime.MembershipService.SiloMetadata;
+using Orleans.Runtime.Placement;
+
+public sealed class JobWorkerDirector(ISiloMetadataCache metadata) : IPlacementDirector
+{
+    public Task<SiloAddress> OnAddActivation(PlacementStrategy strategy, PlacementTarget target, IPlacementContext context)
+    {
+        var workers = context.GetCompatibleSilos(target)
+            .Where(silo => metadata.GetSiloMetadata(silo).Metadata.TryGetValue("role", out var role) && role == "worker")
+            .ToList();
+
+        return workers.Count == 0
+            ? throw new NoEligibleJobWorker(target.GrainIdentity, "no silo has the worker role")
+            : Task.FromResult(workers[Random.Shared.Next(workers.Count)]);
+    }
+}
+```
+
+Enable the job or job-step placement strategy only once every silo in the cluster runs this version, and register it identically on every silo.
+
+> [!WARNING]
+> Opting in overrides any placement attribute on your job and step classes. Directors run on the activation
+> path, so they must answer promptly and must not call grains or storage.
+
+`UseJobStepParallelismFromSiloMetadata()` makes each silo read its step limit from the silo metadata key
+`cratis.jobs.max-parallel-steps` (pass another key as the argument). A missing, unparseable or non-positive value
+falls back to the `JobsOptions` limit. Call it after `AddCratisOrleans`, which registers the default throttle.
+
 ## Reminders stay in-memory - deliberately
 
 `Orleans.Providers.MongoDB` has no Orleans 10 release; 9.5.0 is a 9.x binary. Only its cluster membership and
