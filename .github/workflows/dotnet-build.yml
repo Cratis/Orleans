@@ -6,8 +6,6 @@ concurrency:
 
 env:
   DOTNET_VERSION: "10.0.x"
-  # Temporary migration proof: the last source state before the xUnit v3 migration. Remove with the parity steps below.
-  BASELINE_SHA: db2df1708bb71e190227e4dd783ae19d2ca840c1
 
 on:
   workflow_dispatch:
@@ -92,35 +90,6 @@ jobs:
       # or empty result, or a nonzero exit, so a run that discovers nothing cannot pass. It never builds.
       - name: Run specifications (ordinary and integration)
         run: bash .github/scripts/run-specifications.sh Release --results TestResults/candidate
-
-      # Temporary migration proof, removed once the pull request's CI evidence is captured: run the same eight
-      # projects from the immutable pre-migration commit with the old runner, in an isolated checkout outside the
-      # workspace so its build files cannot mix with this tree's, then require identical cases and outcomes.
-      - name: Fetch pre-migration source
-        run: |
-          git fetch --depth=1 origin "$BASELINE_SHA"
-          git worktree add --detach "$RUNNER_TEMP/orleans-baseline" "$BASELINE_SHA"
-          test "$(git -C "$RUNNER_TEMP/orleans-baseline" rev-parse HEAD)" = "$BASELINE_SHA"
-
-      - name: Build pre-migration source
-        run: dotnet build "$RUNNER_TEMP/orleans-baseline/Orleans.slnx" --configuration Release
-
-      - name: Run pre-migration specifications
-        run: |
-          set -euo pipefail
-          baseline="$RUNNER_TEMP/orleans-baseline"
-          mapfile -t projects < <(node .github/scripts/compare-specifications.mjs --list-projects all | cut -f1)
-          test "${#projects[@]}" -eq 8
-          for path in "${projects[@]}"; do
-            name=$(basename "$path" .csproj)
-            out="$PWD/TestResults/baseline/$name"
-            mkdir -p "$out"
-            dotnet test "$baseline/$path" --configuration Release --no-build --no-restore --list-tests > "$out/discovery.txt"
-            dotnet test "$baseline/$path" --configuration Release --no-build --no-restore --logger "trx;LogFileName=$name.trx" --results-directory "$out"
-          done
-
-      - name: Compare pre- and post-migration cases and outcomes
-        run: node .github/scripts/compare-specifications.mjs --baseline TestResults/baseline --candidate TestResults/candidate --scope all
 
       - name: Verify packed Orleans dependencies for supported frameworks
         run: bash .github/package-smoke/verify.sh
