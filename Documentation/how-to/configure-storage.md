@@ -67,4 +67,5 @@ builder.Services.AddCratisOrleansInMemoryJobsStorage();
 
 The job and job step grains persist through the registered provider - resolved by their grain key's scope and
 namespace - and every query (`GetJobs`, `ObserveJobs`, step counting) reads the same place. Two silos sharing
-one storage see each other's jobs; a silo with its own storage does not.
+one storage see each other's jobs; a silo with its own storage does not. Rehydration reads through
+`GetJobsExcludingFinalizedStops`; see [Rehydration](../concepts/jobs.md#rehydration-reads-leave-finalized-stops-out-in-storage).

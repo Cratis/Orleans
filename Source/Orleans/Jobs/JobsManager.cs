@@ -347,7 +347,7 @@ public class JobsManager(
             logger.Rehydrating();
             await CleanupDeadJobs().WaitAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            var getRunningJobs = await _jobStorage!.GetJobs(_rehydratedStatuses).WaitAsync(cancellationToken);
+            var getRunningJobs = await _jobStorage!.GetJobsExcludingFinalizedStops(_rehydratedStatuses).WaitAsync(cancellationToken);
             await getRunningJobs.Match(
                 runningJobs =>
                 {
@@ -426,7 +426,7 @@ public class JobsManager(
             // Coalesce requests during a drain into a fresh full pass, not another concurrent drain.
             _rehydrationRequested = false;
             await CleanupDeadJobs().WaitAsync(cancellationToken);
-            var discovered = await _jobStorage!.GetJobs(_rehydratedStatuses).WaitAsync(cancellationToken);
+            var discovered = await _jobStorage!.GetJobsExcludingFinalizedStops(_rehydratedStatuses).WaitAsync(cancellationToken);
             discovered.RethrowError();
             runningJobs = discovered.AsT0.Where(_needsRehydration);
         }

@@ -1,5 +1,5 @@
 {
-  "SourceRevision": "7878c6a61ffe88476617dde32ae6bb20358b3cf6",
+  "SourceRevision": "37db6eff5c3be233e269cc96f247722e7c8f0b2b",
   "Files": [
     {
       "Source": "agents/backend-developer.md",
@@ -724,7 +724,7 @@
     {
       "Source": "hooks/README.md",
       "Destination": "hooks/README.md",
-      "Hash": "C41EA2A8EB53CFC5423E9BE0D3FC846B779D41A317BF17E4A6681736748E516F"
+      "Hash": "36CF423CAC137FC13183B87BBE2589FCF6C906F5D4470C776F1024586C2C4A23"
     },
     {
       "Source": "hooks/agent-stop.md",
@@ -744,7 +744,7 @@
     {
       "Source": "hooks/scripts/cratis-cleanup-worktrees.sh",
       "Destination": "hooks/scripts/cratis-cleanup-worktrees.sh",
-      "Hash": "4AA67B4CB444FB5C425C2BFC1FEB9727834EB9E3A85F1DC336B56A8CDC64105A"
+      "Hash": "D86611EBA752D2674C23FB2B43556621A40280F696A8A111804C3E510F97EAFF"
     },
     {
       "Source": "hooks/scripts/cratis-guard-pr-body.sh",
@@ -1509,7 +1509,12 @@
     {
       "Source": "skills/cratis-engineering-local-cross-repo-verification/SKILL.md",
       "Destination": "skills/cratis-engineering-local-cross-repo-verification/SKILL.md",
-      "Hash": "BA50FC8B0CAF67663D72E033BC7A40310436EC6F01AD2823F9D6AC81920F5248"
+      "Hash": "7A20648D9EBC365B57D47464532EC1F20A745061F8F1B04F050907AF8ECE5460"
+    },
+    {
+      "Source": "skills/cratis-engineering-local-cross-repo-verification/references/dependency-map.md",
+      "Destination": "skills/cratis-engineering-local-cross-repo-verification/references/dependency-map.md",
+      "Hash": "2759E98D8D0DE51244F34799BF87C76E48C28B740FE1E8E5BEB618984C390A48"
     },
     {
       "Source": "skills/cratis-engineering-local-cross-repo-verification/references/docker-images.md",
@@ -1539,12 +1544,17 @@
     {
       "Source": "skills/cratis-engineering-local-cross-repo-verification/references/worked-examples.md",
       "Destination": "skills/cratis-engineering-local-cross-repo-verification/references/worked-examples.md",
-      "Hash": "CF6280711F09FF1E9B26CECF132226AEE1DCE1C2CB6D0A64871B00D9BA8A0003"
+      "Hash": "A1E33680C0A269B08AE3A21A742DB6FAF893EEB6ABCEE886756A6AF87A4E4C74"
     },
     {
       "Source": "skills/cratis-engineering-local-cross-repo-verification/scripts/cratis-local-packages.sh",
       "Destination": "skills/cratis-engineering-local-cross-repo-verification/scripts/cratis-local-packages.sh",
       "Hash": "D7057D3006436825A464F26E75272AD5656B74C2BBBA31A916A0EDF624921D52"
+    },
+    {
+      "Source": "skills/cratis-engineering-local-cross-repo-verification/scripts/dependency-map.tsv",
+      "Destination": "skills/cratis-engineering-local-cross-repo-verification/scripts/dependency-map.tsv",
+      "Hash": "C52B1C7314D6F2D125345B4A640AC3C07A0A6DA0D756EE8915041931BCEE8122"
     },
     {
       "Source": "skills/cratis-engineering-local-cross-repo-verification/scripts/npm-restore-check.cjs",

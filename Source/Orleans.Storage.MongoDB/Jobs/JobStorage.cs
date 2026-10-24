@@ -33,6 +33,7 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
     const string StatusElementName = "status";
     const string TypeElementName = "type";
     const string CreatedElementName = "created";
+    const string StopFinalizedElementName = "stopFinalized";
     static readonly JobStatus[] _terminalStatuses = [JobStatus.CompletedSuccessfully, JobStatus.CompletedWithFailures, JobStatus.Failed];
     readonly ConcurrentDictionary<string, byte> _ensuredIndexes = new();
     readonly ILogger<JobStorage> _logger = NullLogger<JobStorage>.Instance;
@@ -88,7 +89,12 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
                 .Ascending(new StringFieldDefinition<JobState>(StatusElementName))
                 .Ascending(new StringFieldDefinition<JobState>(CreatedElementName))
                 .Ascending("_id"),
-            new CreateIndexOptions { Name = "type_status_created", Background = true })
+            new CreateIndexOptions { Name = "type_status_created", Background = true }),
+        new(
+            Builders<JobState>.IndexKeys
+                .Ascending(new StringFieldDefinition<JobState>(StatusElementName))
+                .Ascending(new StringFieldDefinition<JobState>(StopFinalizedElementName)),
+            new CreateIndexOptions { Name = "status_stopFinalized", Background = true })
     ];
 
     IMongoCollection<JobState> Collection => database.GetCollection<JobState>(WellKnownCollectionNames.Jobs);
@@ -141,6 +147,22 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
         try
         {
             var jobs = await _retry.Execute("getting jobs", () => GetJobsRaw(statuses)).ConfigureAwait(false);
+            return jobs.ToImmutableList();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<Catch<IImmutableList<JobState>>> GetJobsExcludingFinalizedStops(params JobStatus[] statuses)
+    {
+        try
+        {
+            var jobs = await _retry.Execute(
+                "getting jobs excluding finalized stops",
+                () => GetJobsRaw(ExcludingFinalizedStopsFilter<JobState>(statuses), 0, 0)).ConfigureAwait(false);
             return jobs.ToImmutableList();
         }
         catch (Exception ex)
@@ -316,6 +338,38 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
                 Builders<TDocument>.Filter.Eq(new StringFieldDefinition<TDocument, JobStatus>(StatusElementName), status)));
 
     /// <summary>
+    /// Gets the filter matching jobs in any of the given statuses, or every job when no status is given, leaving out
+    /// stopped jobs whose stop has been finalized.
+    /// </summary>
+    /// <param name="statuses">The <see cref="JobStatus">statuses</see> to match.</param>
+    /// <typeparam name="TDocument">The job state document type the filter is built for.</typeparam>
+    /// <returns>The <see cref="FilterDefinition{TDocument}"/> to query with.</returns>
+    /// <remarks>
+    /// A job stored before finalization existed has no <c lang="csharp">stopFinalized</c> element, and <c lang="csharp">$ne: true</c> keeps it.
+    /// The stopped branch is kept separate so the <c lang="csharp">status_stopFinalized</c> index can bound it. Named by stored BSON
+    /// element name for the reason given on <see cref="StatusFilter{TDocument}"/>.
+    /// </remarks>
+    internal static FilterDefinition<TDocument> ExcludingFinalizedStopsFilter<TDocument>(IReadOnlyCollection<JobStatus> statuses)
+    {
+        var status = new StringFieldDefinition<TDocument, JobStatus>(StatusElementName);
+        var stopFinalized = new StringFieldDefinition<TDocument, bool>(StopFinalizedElementName);
+        var filter = Builders<TDocument>.Filter;
+        if (statuses.Count == 0)
+        {
+            return filter.Ne(status, JobStatus.Stopped) | filter.Ne(stopFinalized, true);
+        }
+
+        var otherStatuses = statuses.Where(candidate => candidate != JobStatus.Stopped).ToList();
+        if (otherStatuses.Count == statuses.Count)
+        {
+            return StatusFilter<TDocument>(statuses);
+        }
+
+        var pendingStops = filter.Eq(status, JobStatus.Stopped) & filter.Ne(stopFinalized, true);
+        return otherStatuses.Count == 0 ? pendingStops : StatusFilter<TDocument>(otherStatuses) | pendingStops;
+    }
+
+    /// <summary>
     /// Gets the filter matching jobs of a given type, narrowed to any of the given statuses when statuses are given.
     /// </summary>
     /// <param name="jobType">The <see cref="JobType"/> to match.</param>
@@ -359,19 +413,21 @@ public class JobStorage(IMongoDatabase database, IJobTypes jobTypes) : IJobStora
         Take = 0
     }).ConfigureAwait(false);
 
-    async Task<List<JobState>> GetJobsRaw(JobQuery query)
+    async Task<List<JobState>> GetJobsRaw(JobQuery query) => await GetJobsRaw(QueryFilter<JobState>(query), query.Skip, query.Take).ConfigureAwait(false);
+
+    async Task<List<JobState>> GetJobsRaw(FilterDefinition<JobState> filter, int skip, int take)
     {
         await EnsureIndexes().ConfigureAwait(false);
 
         // The materialized Status field is kept in lockstep with the last status change (see the Job grain), so
         // filtering it directly is behavior-identical to the previous $arrayElemAt on statusChanges — and indexable.
         using var cursor = await Collection.FindAsync(
-            QueryFilter<JobState>(query),
+            filter,
             new FindOptions<JobState, BsonDocument>
             {
                 Sort = Builders<JobState>.Sort.Ascending(CreatedElementName).Ascending("_id"),
-                Skip = Math.Max(0, query.Skip),
-                Limit = query.Take > 0 ? query.Take : null
+                Skip = Math.Max(0, skip),
+                Limit = take > 0 ? take : null
             }).ConfigureAwait(false);
         return await DeserializeJobs<JobState>(cursor).ConfigureAwait(false);
     }

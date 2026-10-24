@@ -21,6 +21,9 @@
         <PackageReference Include="System.Security.Cryptography.Pkcs" />
     </ItemGroup>
     <ItemGroup>
+        <InternalsVisibleTo Include="Cratis.Orleans.Storage.Sql.Specs" />
+    </ItemGroup>
+    <ItemGroup>
         <ProjectReference Include="../Orleans/Orleans.csproj" />
         <ProjectReference Include="../Orleans.Storage/Orleans.Storage.csproj" />
     </ItemGroup>

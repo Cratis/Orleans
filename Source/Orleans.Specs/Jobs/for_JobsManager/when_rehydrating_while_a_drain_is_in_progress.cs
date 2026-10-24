@@ -31,4 +31,5 @@ public class when_rehydrating_while_a_drain_is_in_progress : given.a_controlled_
     [Fact] void should_return_without_waiting_for_the_in_progress_drain() => _drainWasStillRunning.ShouldBeTrue();
     [Fact] void should_not_multiply_the_concurrency_limit() => _initialResumeCount.ShouldEqual(2);
     [Fact] void should_make_a_fresh_pass_for_the_newly_interrupted_job() => _newJob.Verify(job => job.Resume(), Times.Once);
+    [Fact] void should_read_both_passes_without_finalized_stops() => _jobStorage.Received(2).GetJobsExcludingFinalizedStops(Arg.Any<JobStatus[]>());
 }
