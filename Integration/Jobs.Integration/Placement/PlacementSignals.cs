@@ -86,7 +86,11 @@ public sealed class PlacementSignals(string database, IReadOnlyDictionary<string
     public TaskCompletionSource GateOf(SiloAddress silo)
     {
         var gate = _gates.GetOrAdd(silo, _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
-        if (!_dead.ContainsKey(silo) && (_allReleased || _released.ContainsKey(silo)))
+        if (_dead.ContainsKey(silo))
+        {
+            return gate;
+        }
+        if (_allReleased || _released.ContainsKey(silo))
         {
             gate.TrySetResult();
         }

@@ -116,27 +116,39 @@ public static class JobPlacementSiloBuilderExtensions
         var services = silo.Services;
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IGrainPropertiesProvider, TProperties>());
 
+        AddStrategy<TStrategy>(services);
+        AddDirector<TStrategy, TDirector>(services, replaceDirector);
+
+        return silo;
+    }
+
+    static void AddStrategy<TStrategy>(IServiceCollection services)
+        where TStrategy : PlacementStrategy, new()
+    {
         var strategyKey = typeof(TStrategy).Name;
         if (!services.Any(descriptor => descriptor.ServiceType == typeof(PlacementStrategy) && Equals(descriptor.ServiceKey, strategyKey)))
         {
             services.Add(ServiceDescriptor.DescribeKeyed(typeof(PlacementStrategy), strategyKey, typeof(TStrategy), ServiceLifetime.Singleton));
         }
+    }
 
+    static void AddDirector<TStrategy, TDirector>(IServiceCollection services, bool replaceDirector)
+        where TStrategy : PlacementStrategy
+        where TDirector : class, IPlacementDirector
+    {
         var directorKey = typeof(TStrategy);
-        var hasDirector = services.Any(descriptor => descriptor.ServiceType == typeof(IPlacementDirector) && Equals(descriptor.ServiceKey, directorKey));
+        var directors = services.Where(descriptor => descriptor.ServiceType == typeof(IPlacementDirector) && Equals(descriptor.ServiceKey, directorKey)).ToList();
         if (replaceDirector)
         {
-            foreach (var existing in services.Where(descriptor => descriptor.ServiceType == typeof(IPlacementDirector) && Equals(descriptor.ServiceKey, directorKey)).ToList())
+            foreach (var existing in directors)
             {
                 services.Remove(existing);
             }
         }
 
-        if (replaceDirector || !hasDirector)
+        if (replaceDirector || directors.Count == 0)
         {
             services.AddKeyedSingleton<IPlacementDirector, TDirector>(directorKey);
         }
-
-        return silo;
     }
 }
