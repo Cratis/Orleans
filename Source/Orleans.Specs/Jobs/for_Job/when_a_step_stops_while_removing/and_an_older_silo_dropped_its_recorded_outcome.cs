@@ -19,7 +19,7 @@ public class and_an_older_silo_dropped_its_recorded_outcome : given.a_job_being_
 
     async Task Because() => await ReportStopFromEarlierExecution();
 
-    [Fact] void should_not_reconstruct_the_missing_record() => _job.CurrentState.CompletedStepsCounted.ShouldBeEmpty();
-    [Fact] void should_have_only_legacy_stop_accounting() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(1);
+    [Fact] void should_not_reconstruct_the_missing_record() => _job.CompletedStepsCountedAtCompletion.ShouldBeEmpty();
+    [Fact] void should_have_only_legacy_stop_accounting() => _job.StoppedStepsAtCompletion.ShouldEqual(1);
     [Fact] void should_not_prevent_legacy_early_removal() => Clears.ShouldEqual(1);
 }

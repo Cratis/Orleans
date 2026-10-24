@@ -59,6 +59,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
     public int ResultsSeenAtCompletion;
     public int SuccessfulStepsAtCompletion;
     public int TotalStepsAtCompletion;
+    public int StoppedStepsAtCompletion;
+    public IList<JobStepId> CompletedStepsCountedAtCompletion = [];
 
     protected override Task OnStepCompletedOrStopped(JobStepId jobStepId, JobStepResult result)
     {
@@ -72,6 +74,8 @@ public class SomeJob : Job<SomeRequest, SomeJobState>, IGrainType
         ResultsSeenAtCompletion = HandledStepResults.Count;
         SuccessfulStepsAtCompletion = State.Progress.SuccessfulSteps;
         TotalStepsAtCompletion = State.Progress.TotalSteps;
+        StoppedStepsAtCompletion = State.Progress.StoppedSteps;
+        CompletedStepsCountedAtCompletion = State.CompletedStepsCounted;
         return OnCompletedThrows
             ? Task.FromException(new Exception())
             : Task.CompletedTask;

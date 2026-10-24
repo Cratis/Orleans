@@ -27,10 +27,10 @@ public class and_its_replacement_success_is_saved_before_reactivation : given.a_
 
     [Fact] void should_not_finish_before_the_other_step_stops() => _clearsBeforeSecondStop.ShouldEqual(0);
     [Fact] void should_finish_after_the_other_step_stops() => Clears.ShouldEqual(1);
-    [Fact] void should_keep_the_success() => _job.CurrentState.Progress.SuccessfulSteps.ShouldEqual(1);
-    [Fact] void should_count_only_the_other_stop() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(1);
+    [Fact] void should_keep_the_success() => _job.SuccessfulStepsAtCompletion.ShouldEqual(1);
+    [Fact] void should_count_only_the_other_stop() => _job.StoppedStepsAtCompletion.ShouldEqual(1);
     [Fact] void should_not_handle_the_replayed_outcome() => _job.HandledStepResults.ShouldContainOnly(_secondStepId);
     [Fact] void should_not_mutate_the_previous_activations_saved_progress() => _savedState.Progress.StoppedSteps.ShouldEqual(0);
     [Fact] void should_not_mutate_the_previous_activations_saved_stops() => _savedState.StoppedStepsCounted.ShouldBeEmpty();
-    [Fact] void should_not_share_the_previous_activations_record() => ReferenceEquals(_job.CurrentState.CompletedStepsCounted, _savedState.CompletedStepsCounted).ShouldBeFalse();
+    [Fact] void should_not_share_the_previous_activations_record() => ReferenceEquals(_job.CompletedStepsCountedAtCompletion, _savedState.CompletedStepsCounted).ShouldBeFalse();
 }
