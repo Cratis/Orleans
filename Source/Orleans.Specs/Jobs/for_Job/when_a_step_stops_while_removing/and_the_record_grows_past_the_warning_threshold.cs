@@ -36,7 +36,8 @@ public class and_the_record_grows_past_the_warning_threshold : given.a_job_being
     [Fact] void should_save_the_record_past_the_threshold() => _job.WrittenStates[^1].CompletedStepsCounted.Count.ShouldEqual(Job<given.SomeRequest, given.SomeJobState>.CountedOutcomesWarningThreshold + 1);
     [Fact] void should_ignore_a_stop_for_a_preset_record() => _job.CurrentState.Progress.StoppedSteps.ShouldEqual(0);
     [Fact] void should_wait_for_the_outstanding_step() => Clears.ShouldEqual(0);
-    [Fact] void should_warn_only_once() => _logger.ReceivedCalls().Count(call =>
+    [Fact]
+    void should_warn_only_once() => _logger.ReceivedCalls().Count(call =>
         call.GetMethodInfo().Name == nameof(ILogger.Log) &&
         call.GetArguments()[0] is LogLevel.Warning).ShouldEqual(1);
 }
