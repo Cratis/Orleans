@@ -9,6 +9,8 @@ public class and_the_dispatch_hook_fails_on_a_cold_stage_advance : given.a_job_w
 {
     bool _startedAfterFailure;
 
+    protected override JobsOptions CreateOptions() => new() { MaxConcurrentStepStarts = 1, JobWatchdogInterval = TimeSpan.Zero };
+
     async Task Establish()
     {
         await _job.Start(new());

@@ -27,6 +27,10 @@ public class from_a_stale_run : given.a_job_step_left_scheduled_by_a_dead_proces
         _jobStep.PerformedResult = JobStepResult.Failed(PerformJobStepError.CancelledWithNoResult());
         (await _jobStep.Start(GrainId.Create("job", _jobId.ToString()))).IsSuccess.ShouldBeTrue();
         await _jobStep.WorkCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+
+        // WorkCompleted is raised from inside the work, before the background task around it has returned; the run is
+        // not settled, and a new Start is refused as already started, until that task and the delivery have both settled.
+        await _jobStep.CurrentRun!.WorkerSettled.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
         await _jobStep.OutcomeDelivery.WaitAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
         _jobStep.Work = null;

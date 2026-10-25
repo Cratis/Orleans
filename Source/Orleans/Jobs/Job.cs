@@ -133,7 +133,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
 
         // Only a watchdog can settle a cold activation's hook; without one, dispatch keeps today's behavior.
         _resumeHookOwed = JobIsRunning() && WatchdogIsEnabled;
-        if (State.Status is JobStatus.Running)
+        if (State.Status is JobStatus.Running || IsStartupWhoseResumeHookIsOwed)
         {
             EnsureWatchdog(WatchdogStartupDelay);
         }
@@ -715,8 +715,9 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
             }
 
-            // A stage that could not be asked about yet counts as stopped as it stands, but the job is still running.
-            if (IsWaitingToAdmitNextStage)
+            // A stage that could not be asked about yet, or that waits for the resume hook, counts as stopped as it
+            // stands, but the job is still running.
+            if (IsWaitingToAdmitNextStage || IsHoldingNextStageForResumeHook)
             {
                 return HandleCompletionSuccess.AllStepsNotCompletedYet;
             }

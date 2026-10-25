@@ -40,7 +40,7 @@ setup registers the defaults.
 | `MaxStepAttempts` | 1 (a failed step is not retried) | How many times a step is attempted before its failure counts as the job's; `Job.ShouldRetryStep` decides per failure |
 | `StepRetryBackoff` | 5 seconds | The delay before the second attempt of a failed step; every further attempt doubles it |
 | `MaxStepRetryBackoff` | 5 minutes | The longest delay between two attempts of a step |
-| `JobWatchdogInterval` | 1 minute | How often a running job counts its steps in storage and finalizes itself when every step is done, and how often it retries a failed resume hook; zero, negative or infinite turns the watchdog off |
+| `JobWatchdogInterval` | 1 minute | How often a running job counts its steps in storage and finalizes itself when every step is done, and how often it retries a failed resume hook, also for a job interrupted while starting; zero, negative or infinite turns the watchdog off |
 | `StepLeaseTimeout` | zero (leases off) | How long a running step may go without a heartbeat before the watchdog may restart it, and only when its owner silo has left the cluster; zero, negative or infinite turns leases off |
 | `StepDeliveryMaxAttempts` | 10 | How many times a step delivers its persisted outcome to its job before it leaves it to the job's watchdog; values below 1 count as 1 |
 | `StepDeliveryRetryDelay` | 1 second | The delay before a step delivers its outcome a second time; every further delivery doubles it |

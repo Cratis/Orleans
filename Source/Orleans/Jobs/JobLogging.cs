@@ -176,7 +176,10 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Warning, "The resume hook failed ({Failures} consecutive failures); no step is dispatched until it succeeds")]
     internal static partial void ResumeHookFailed(this ILogger<IJob> logger, Exception ex, int failures);
 
-    [LoggerMessage(LogLevel.Information, "Resuming a running job whose resume hook has not succeeded in this activation ({Failures} consecutive failures)")]
+    [LoggerMessage(LogLevel.Information, "Holding stage {Stage} until the resume hook succeeds")]
+    internal static partial void HoldingNextStageUntilResumeHookSucceeds(this ILogger<IJob> logger, Stages.JobStepStage stage);
+
+    [LoggerMessage(LogLevel.Information, "Resuming a job whose resume hook has not succeeded in this activation ({Failures} consecutive failures)")]
     internal static partial void ResumingJobWhoseResumeHookIsOwed(this ILogger<IJob> logger, int failures);
 
     [LoggerMessage(LogLevel.Information, "Not resuming job because its status is {Status}, not Running")]

@@ -68,5 +68,9 @@ public abstract partial class Job<TRequest, TJobState>
         _resumeHookOwed = true;
         _resumeHookFailures++;
         _resumeRetryTicksToSkip = Math.Min((1 << Math.Min(_resumeHookFailures - 1, 4)) - 1, MaxResumeRetryTicksToSkip);
+        if (IsStartupWhoseResumeHookIsOwed)
+        {
+            EnsureWatchdog(WatchdogInterval);
+        }
     }
 }
