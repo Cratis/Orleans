@@ -130,6 +130,8 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
             await CountStepsFromStorageAfterActivation();
         }
+        // Only a watchdog can settle a cold activation's hook; without one, dispatch keeps today's behavior.
+        _resumeHookOwed = JobIsRunning() && WatchdogIsEnabled;
         if (State.Status is JobStatus.Running)
         {
             EnsureWatchdog(WatchdogStartupDelay);
@@ -189,6 +191,19 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
         }
 
         return await PrepareAndStartRunningAllStepsAndHandleFailureToPrepare(request);
+    }
+
+    /// <inheritdoc/>
+    public async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning()
+    {
+        if (State.Status is not JobStatus.Running)
+        {
+            using var scope = _logger.BeginJobScope(JobId, JobKey);
+            _logger.NotResumingJobThatIsNotRunning(State.Status);
+            return ResumeJobSuccess.JobIsNotRunning;
+        }
+
+        return await Resume();
     }
 
     /// <inheritdoc/>

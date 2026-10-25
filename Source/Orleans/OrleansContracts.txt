@@ -10,12 +10,13 @@
 # Review every diff: identity or signature changes can break wire compatibility during rolling upgrades.
 # Details: https://aka.ms/orleans/OrleansContracts.txt
 
-interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJob")] Cratis.Orleans.Jobs.IJob [Version(0)]
+interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJob")] Cratis.Orleans.Jobs.IJob [Version(1)]
   7B7F2C97: OnStepFailed(Cratis.Orleans.Jobs.JobStepId, Cratis.Orleans.Jobs.JobStepResult) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.JobError>>
   0FA2F353: OnStepStopped(Cratis.Orleans.Jobs.JobStepId, Cratis.Orleans.Jobs.JobStepResult) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.JobError>>
   B887CE00: OnStepSucceeded(Cratis.Orleans.Jobs.JobStepId, Cratis.Orleans.Jobs.JobStepResult) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.JobError>>
   02870384: Remove() -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.RemoveJobError>>
   D1D0DE45: Resume() -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.ResumeJobSuccess, Cratis.Orleans.Jobs.ResumeJobError>>
+  7347710B: ResumeIfRunning() -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.ResumeJobSuccess, Cratis.Orleans.Jobs.ResumeJobError>>
   0A918F6D: RetryFailed() -> Task<Cratis.Monads.Result<int, Cratis.Orleans.Jobs.RetryFailedStepsError>>
   3F252847: Stop() -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.StopJobError>>
 
@@ -48,7 +49,7 @@ interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJobStepDrain")] Cratis.Orlea
 interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJobStopFinalization")] Cratis.Orleans.Jobs.IJobStopFinalization [Version(0)]
   C3F6AC81: FinalizeStop() -> Task
 
-interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJobsManager")] Cratis.Orleans.Jobs.IJobsManager [Version(0)]
+interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJobsManager")] Cratis.Orleans.Jobs.IJobsManager [Version(1)]
   E4F940C5: CleanupDeadJobs() -> Task
   256EF80D: Delete(Cratis.Orleans.Jobs.JobId) -> Task
   C8943C1C: GetAllJobs() -> Task<System.Collections.Immutable.IImmutableList<Cratis.Orleans.Storage.Jobs.JobState>>
@@ -56,6 +57,7 @@ interface [GrainInterfaceType("Cratis.Orleans.Jobs.IJobsManager")] Cratis.Orlean
   B257DC97: GetJobsOfType`2() -> Task<System.Collections.Immutable.IImmutableList<Cratis.Orleans.Storage.Jobs.JobState>>
   15B76772: Rehydrate() -> Task
   D11AB28A: Resume(Cratis.Orleans.Jobs.JobId) -> Task<bool>
+  719FFEE5: ResumeIfRunning(Cratis.Orleans.Jobs.JobId) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.ResumeJobSuccess, Cratis.Orleans.Jobs.ResumeJobError>>
   08FCC874: RetryFailedSteps(Cratis.Orleans.Jobs.JobId) -> Task<Cratis.Monads.Result<int, Cratis.Orleans.Jobs.RetryFailedStepsError>>
   C1BD24DC: Start`2(Cratis.Orleans.Jobs.JobId, TRequest) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.JobId, Cratis.Orleans.Jobs.StartJobError>>
   61D33F73: Start`2(TRequest) -> Task<Cratis.Monads.Result<Cratis.Orleans.Jobs.JobId, Cratis.Orleans.Jobs.StartJobError>>

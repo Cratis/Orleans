@@ -140,6 +140,26 @@ public class JobsManager(
     }
 
     /// <inheritdoc/>
+    public async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning(JobId jobId)
+    {
+        using var scope = logger.BeginJobsManagerScope(_key);
+
+        logger.ResumingJobIfRunning(jobId);
+
+        var outcome = await DoActionOnJobGrain(jobId, async (_, job) =>
+        {
+            var result = await job.ResumeIfRunning();
+            await result.Match(
+                success => HandleResumeJobSuccess(jobId, success),
+                error => HandleResumeJobError(jobId, error));
+            return result;
+        });
+        return outcome.Match(
+            result => result,
+            _ => Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.Unknown));
+    }
+
+    /// <inheritdoc/>
     public Task Rehydrate()
     {
         // This grain is reentrant: share both preparation and the background drain, but never make callers
@@ -705,6 +725,9 @@ public class JobsManager(
                 break;
             case ResumeJobSuccess.JobIsCompleted:
                 logger.CannotResumeJobBecauseCompleted(jobId);
+                break;
+            case ResumeJobSuccess.JobIsNotRunning:
+                logger.NotResumingJobBecauseItIsNotRunning(jobId);
                 break;
             default:
                 return Task.CompletedTask;

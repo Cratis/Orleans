@@ -154,7 +154,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             OutcomeCounted(step.Id);
         }
-        await OnBeforeResumingJobSteps();
+        await RunResumeHook();
         await RunDispatchHook(initializationMayBeIncomplete: true);
         if (State.Progress.IsCompleted || await PrepareStagesForResume())
         {

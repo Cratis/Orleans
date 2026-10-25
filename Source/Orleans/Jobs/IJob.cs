@@ -2,12 +2,14 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using Cratis.Monads;
+using Orleans.CodeGeneration;
 
 namespace Cratis.Orleans.Jobs;
 
 /// <summary>
 /// Represents a job that typically runs as long-running with <see cref="IJobStep{TRequest, TResult, TState}"/>.
 /// </summary>
+[Version(1)]
 public interface IJob : IGrainWithGuidCompoundKey
 {
     /// <summary>
@@ -28,6 +30,18 @@ public interface IJob : IGrainWithGuidCompoundKey
     /// if their activation lost its performer; live steps are not restarted. Interrupted preparation fails explicitly.
     /// </remarks>
     Task<Result<ResumeJobSuccess, ResumeJobError>> Resume();
+
+    /// <summary>
+    /// Resume a job only when its stored status is <see cref="Storage.Jobs.JobStatus.Running"/>.
+    /// </summary>
+    /// <returns>Awaitable task.</returns>
+    /// <remarks>
+    /// The status is checked in the job's own turn, so a stop or removal is serialized before or after the whole call
+    /// and can never land between the check and the resume. A job in any other status is left untouched and
+    /// <see cref="ResumeJobSuccess.JobIsNotRunning"/> is returned. For a running job it behaves exactly like <see cref="Resume"/>,
+    /// which stays unrestricted.
+    /// </remarks>
+    Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning();
 
     /// <summary>
     /// Removed a running job.

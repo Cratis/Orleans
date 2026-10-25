@@ -19,6 +19,8 @@ public abstract partial class Job<TRequest, TJobState>
 
     TimeSpan WatchdogInterval => JobsOptionsOrDefault.JobWatchdogInterval;
 
+    bool WatchdogIsEnabled => WatchdogInterval > TimeSpan.Zero && WatchdogInterval != Timeout.InfiniteTimeSpan;
+
     TimeSpan WatchdogStartupDelay => WatchdogInterval > TimeSpan.Zero && WatchdogInterval != Timeout.InfiniteTimeSpan
         ? TimeSpan.FromTicks(Math.Min(WatchdogInterval.Ticks, _watchdogStartupDelay.Ticks))
         : WatchdogInterval;
@@ -54,6 +56,11 @@ public abstract partial class Job<TRequest, TJobState>
             if (notDone == 0 && _pendingRetries.Count == 0)
             {
                 await FinalizeJobWhoseStepsAreAllDone(counts);
+                return;
+            }
+
+            if (await HoldDispatchUntilResumeHookSucceeds())
+            {
                 return;
             }
 
@@ -114,15 +121,14 @@ public abstract partial class Job<TRequest, TJobState>
 
     void EnsureWatchdog(TimeSpan dueTime)
     {
-        var interval = WatchdogInterval;
-        if (_watchdogTimer is not null || interval <= TimeSpan.Zero || interval == Timeout.InfiniteTimeSpan)
+        if (_watchdogTimer is not null || !WatchdogIsEnabled)
         {
             return;
         }
 
         _watchdogTimer = this.RegisterGrainTimer(
             _ => RunWatchdog(),
-            new GrainTimerCreationOptions { DueTime = dueTime, Period = interval });
+            new GrainTimerCreationOptions { DueTime = dueTime, Period = WatchdogInterval });
     }
 
     void DisposeWatchdog()
@@ -130,6 +136,8 @@ public abstract partial class Job<TRequest, TJobState>
         _watchdogTimer?.Dispose();
         _watchdogTimer = null;
         _resumeStartFailures.Clear();
+        _resumeHookFailures = 0;
+        _resumeRetryTicksToSkip = 0;
     }
 
     async Task RetryStepsWhoseResumeStartThrew()

@@ -228,6 +228,7 @@ public abstract partial class Job<TRequest, TJobState>
 
         if (!await StopAtFailedBarrier() && State.Progress.Stages.Current() is { } current)
         {
+            await RunResumeHook();
             await RunDispatchHook(initializationMayBeIncomplete: false);
             _ = await StartStage(this.GetGrainId(), current);
             _ = await AdvanceStagesAfter(current, checkAdmission: false);

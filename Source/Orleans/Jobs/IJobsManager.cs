@@ -4,12 +4,14 @@
 using System.Collections.Immutable;
 using Cratis.Monads;
 using Cratis.Orleans.Storage.Jobs;
+using Orleans.CodeGeneration;
 
 namespace Cratis.Orleans.Jobs;
 
 /// <summary>
 /// Defines a system that manages jobs.
 /// </summary>
+[Version(1)]
 public interface IJobsManager : IGrainWithIntegerCompoundKey
 {
     /// <summary>
@@ -19,7 +21,7 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// <remarks>
     /// Jobs resume oldest first in bounded background work owned by this activation. Overlapping calls share
     /// preparation and the drain. A queued job whose freshly loaded status is no longer interrupted is skipped;
-    /// an explicit <see cref="Resume"/> can still resume a stopped job. A job that is stopped or being removed when it is
+    /// an explicit <see cref="Resume"/> can still resume a stopped job; <see cref="ResumeIfRunning"/> cannot. A job that is stopped or being removed when it is
     /// dispatched is never resumed; it finalizes its stop through <see cref="IJobStopFinalization.FinalizeStop"/>.
     /// The activation is kept alive during the drain, but deactivation, migration, memory-pressure shedding
     /// (<see cref="global::Orleans.Configuration.GrainCollectionOptions.EnableActivationSheddingOnMemoryPressure"/>),
@@ -70,6 +72,20 @@ public interface IJobsManager : IGrainWithIntegerCompoundKey
     /// will never report back. A caller that treats that as success waits forever for something that is not coming.
     /// </remarks>
     Task<bool> Resume(JobId jobId);
+
+    /// <summary>
+    /// Resume a job only if it is running.
+    /// </summary>
+    /// <param name="jobId"><see cref="JobId"/> to resume.</param>
+    /// <returns>
+    /// The job's own result: <see cref="ResumeJobSuccess.JobIsNotRunning"/> when it was not running and nothing was done,
+    /// or <see cref="CannotResumeJobError.Unknown"/> when the job could not be reached.
+    /// </returns>
+    /// <remarks>
+    /// The status check happens inside the job grain, in the same turn as the resume, so a stop or removal can never
+    /// land between the check and the resume. On a cold activation the check reads the durable status.
+    /// </remarks>
+    Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning(JobId jobId);
 
     /// <summary>
     /// Stop a job if running.

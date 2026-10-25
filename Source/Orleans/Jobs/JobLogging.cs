@@ -20,6 +20,15 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Debug, "Resuming job")]
     public static partial void Resuming(this ILogger<IJob> logger);
 
+    [LoggerMessage(LogLevel.Warning, "The resume hook failed ({Failures} consecutive failures); no step is dispatched until it succeeds")]
+    internal static partial void ResumeHookFailed(this ILogger<IJob> logger, Exception ex, int failures);
+
+    [LoggerMessage(LogLevel.Information, "Resuming a running job whose resume hook has not succeeded in this activation ({Failures} consecutive failures)")]
+    internal static partial void ResumingJobWhoseResumeHookIsOwed(this ILogger<IJob> logger, int failures);
+
+    [LoggerMessage(LogLevel.Information, "Not resuming job because its status is {Status}, not Running")]
+    internal static partial void NotResumingJobThatIsNotRunning(this ILogger<IJob> logger, JobStatus status);
+
     [LoggerMessage(LogLevel.Debug, "Restarting steps stopped before the last resume")]
     public static partial void RestartingStepsStoppedBeforeLastResume(this ILogger<IJob> logger);
 

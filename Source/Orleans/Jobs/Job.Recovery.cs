@@ -18,7 +18,7 @@ public abstract partial class Job<TRequest, TJobState>
         {
             // Running must already be durable: consumers may adopt this job from their own replay entry without
             // recursively resuming the job whose hook is waiting on them.
-            await OnBeforeResumingJobSteps();
+            await RunResumeHook();
             await RunDispatchHook(initializationMayBeIncomplete: false);
             return true;
         }
@@ -62,7 +62,7 @@ public abstract partial class Job<TRequest, TJobState>
             // failure reports before moving storage. Only this activation knows which reports it accepted.
             var tracked = StepsInCurrentStage().Where(step => resumable.ContainsKey(step.Key))
                 .ToDictionary(step => step.Key, step => step.Value);
-            await OnBeforeResumingJobSteps();
+            await RunResumeHook();
             await RunDispatchHook(initializationMayBeIncomplete: false);
             return await ResumeCurrentStage(tracked, reportAlreadyRunning: _hasDispatchedSteps);
         }
@@ -89,7 +89,7 @@ public abstract partial class Job<TRequest, TJobState>
             return await FinalizeInsteadOfResuming();
         }
 
-        await OnBeforeResumingJobSteps();
+        await RunResumeHook();
         await RunDispatchHook(initializationMayBeIncomplete: false);
         return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: _hasDispatchedSteps);
     }
