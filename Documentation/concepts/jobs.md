@@ -130,7 +130,7 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
 - `Start` returns once the first stage is running, and its errors describe that stage. When no step of the first
   stage starts but the stage continues on failure and a later stage starts, `Start` returns
   `FailedStartingSomeJobSteps`, because the job is running. Later stages report their start failures through the job.
-- On resume the job picks up at the stage it had reached, and the stages behind it wait their turn.
+- On resume the job picks up at the stage it had reached, and the stages behind it wait their turn. After a cold activation, a stage reached before `OnBeforeResumingJobSteps` has succeeded waits until it has; the watchdog's resume starts it.
 
 ## Jobs are placed where there is capacity
 
@@ -714,12 +714,12 @@ The watchdog also retries steps whose start threw during resume, without requiri
 
 When `OnBeforeResumingJobSteps` throws for a job that is `Running`, the job stays `Running` and the watchdog retries
 the resume through `Resume` on the next tick, then skips 1, 3, 7 and then 15 ticks between attempts (every 16th tick at most). Until the
-hook succeeds in the current activation, the watchdog fills no window and restarts no step whose lease expired. An
+hook succeeds in the current activation, the watchdog fills no window, restarts no step whose lease expired and starts no next stage. An
 activation that has not run the hook yet (cold, never resumed) resumes itself the same way on its first watchdog tick,
 after the startup delay gave rehydration and membership recovery first chance. This applies only while the watchdog
 is enabled: with `JobWatchdogInterval` zero, negative or infinite nothing could settle the hook, so a cold activation
 dispatches as before. A hook that actually failed still holds dispatch even then, until an explicit `Resume` succeeds. A job that was reverted to `Stopped`,
-or stopped later, is never resumed by the watchdog. With `JobWatchdogInterval` off, nothing retries.
+or stopped later, is never resumed by the watchdog. A job interrupted while `PreparingJob`, `PreparingSteps` or `StartingSteps` with a saved step plan is retried the same way, and finishes startup through `Resume`. With `JobWatchdogInterval` off, nothing retries.
 
 ### Resume a job only while it is running
 

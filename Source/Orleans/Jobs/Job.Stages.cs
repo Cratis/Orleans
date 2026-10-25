@@ -18,6 +18,14 @@ public abstract partial class Job<TRequest, TJobState>
     bool IsStaged => State.Progress.Stages.Count > 1;
 
     /// <summary>
+    /// Gets whether the job holds the next stage back because the resume hook of this activation has not succeeded yet.
+    /// </summary>
+    bool IsHoldingNextStageForResumeHook =>
+        _resumeHookOwed &&
+        State.Status is JobStatus.Running or JobStatus.StartingSteps &&
+        State.Progress.Stages.Current() is { IsStarted: false };
+
+    /// <summary>
     /// Create a new <see cref="IJobStep"/> that runs in a given stage.
     /// </summary>
     /// <param name="request">The request associated with the step.</param>
@@ -171,6 +179,14 @@ public abstract partial class Job<TRequest, TJobState>
         {
             if (await StopAtFailedBarrier() || State.Progress.Stages.Current() is not { } next)
             {
+                return laterStageRunning;
+            }
+
+            // A stage started before the resume hook succeeded could run work the hook has not made safe yet; the
+            // resume between stages that settles the hook starts it.
+            if (_resumeHookOwed)
+            {
+                _logger.HoldingNextStageUntilResumeHookSucceeds(next.Stage);
                 return laterStageRunning;
             }
 

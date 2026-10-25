@@ -19,6 +19,14 @@ public abstract partial class Job<TRequest, TJobState>
 
     TimeSpan WatchdogInterval => JobsOptionsOrDefault.JobWatchdogInterval;
 
+    /// <summary>
+    /// Gets whether the job is interrupted startup that keeps its plan until it reaches Running, so only the resume hook
+    /// stands between it and dispatch.
+    /// </summary>
+    bool IsStartupWhoseResumeHookIsOwed =>
+        _resumeHookOwed && !State.DrainPending && State.StepPlan is not null &&
+        State.Status is JobStatus.PreparingJob or JobStatus.PreparingSteps or JobStatus.StartingSteps;
+
     bool WatchdogIsEnabled => WatchdogInterval > TimeSpan.Zero && WatchdogInterval != Timeout.InfiniteTimeSpan;
 
     TimeSpan WatchdogStartupDelay => WatchdogInterval > TimeSpan.Zero && WatchdogInterval != Timeout.InfiniteTimeSpan
@@ -36,6 +44,21 @@ public abstract partial class Job<TRequest, TJobState>
     /// </remarks>
     internal async Task RunWatchdog()
     {
+        if (IsStartupWhoseResumeHookIsOwed)
+        {
+            using var startupScope = _logger.BeginJobScope(JobId, JobKey);
+            try
+            {
+                _ = await HoldDispatchUntilResumeHookSucceeds();
+            }
+            catch (Exception ex)
+            {
+                _logger.WatchdogFailed(ex);
+            }
+
+            return;
+        }
+
         if (State.Status is not JobStatus.Running || State.DrainPending || !JobIsPrepared())
         {
             DisposeWatchdog();
