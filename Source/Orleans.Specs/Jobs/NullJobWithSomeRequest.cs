@@ -16,6 +16,7 @@ public class NullJobWithSomeRequest : INullJobWithSomeRequest
 
     public Task<Result<StopJobError>> Stop() => Task.FromResult(Result.Success<StopJobError>());
     public Task<Result<ResumeJobSuccess, ResumeJobError>> Resume() => Task.FromResult(Result.Success<ResumeJobSuccess, ResumeJobError>(ResumeJobSuccess.Success));
+    public Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning() => Task.FromResult(Result.Success<ResumeJobSuccess, ResumeJobError>(ResumeJobSuccess.JobIsNotRunning));
     public Task<Result<RemoveJobError>> Remove() => Task.FromResult(Result.Success<RemoveJobError>());
     public Task<Result<int, RetryFailedStepsError>> RetryFailed() => Task.FromResult(Result.Success<int, RetryFailedStepsError>(0));
     public Task<Result<JobError>> OnStepSucceeded(JobStepId stepId, JobStepResult result) => Task.FromResult(Result.Success<JobError>());

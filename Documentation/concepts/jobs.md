@@ -47,6 +47,7 @@ that dispatch does not start any steps.
 The hook runs after `OnBeforeStartingJobSteps` on a clean start and after `OnBeforeResumingJobSteps` on a
 resume. Those existing hooks retain their roles; recovery never replays the start hook, even if the silo
 stopped before it ran. Resuming between stages also invokes the dispatch hook before starting the next stage.
+Resuming a job left between two stages also runs `OnBeforeResumingJobSteps` first.
 
 `context.InitializationMayBeIncomplete` is `true` when recovering `PreparingSteps` or `StartingSteps`.
 Recovery prepares only steps whose preparation was not saved, with their original identities, then ensures
@@ -438,7 +439,8 @@ If the resume or compensating status write fails, the eligible stopped job's act
 serve an uncertain state. Recovery reads whichever status reached storage. A crash after `Running` was written
 but before compensation can also leave that status persisted; cold recovery can retry the hook and the stopped
 steps from the earlier execution. None of this guarantees an automatic retry or makes a permanently failing
-hook succeed. Inspect the failed resume and correct its cause before retrying.
+hook succeed. Inspect the failed resume and correct its cause before retrying. A job left `Running` is retried
+by the watchdog (see [The watchdog](#the-watchdog)); a job reverted to `Stopped` is not.
 
 ## Testing your job steps
 
@@ -587,7 +589,7 @@ first refusal ends the question.
 A job asks at these check points:
 
 - `Start`, after the checks that refuse a job that already exists and before anything is written;
-- every path into `Resume`: `IJob.Resume`, `IJobsManager.Resume`, rehydration after a silo went away, and automatic
+- every path into `Resume`: `IJob.Resume`, `IJob.ResumeIfRunning`, `IJobsManager.Resume`, `IJobsManager.ResumeIfRunning`, rehydration after a silo went away, and automatic
   recovery;
 - each later stage of a job with stages, once the steps of the stage before it have reached their outcome.
 
@@ -709,6 +711,32 @@ step that succeeded is no longer in storage - it recounts its progress from stor
 job keeps while steps report to it are a cache; storage is the record. `IJobStepStorage.CountByStatus` is a
 default interface member, so a third-party storage keeps compiling and can override it with a cheaper query.
 The watchdog also retries steps whose start threw during resume, without requiring leases or another recovery pass; explicit start refusals are reported but not retried.
+
+When `OnBeforeResumingJobSteps` throws for a job that is `Running`, the job stays `Running` and the watchdog retries
+the resume through `Resume` on the next tick, then skips 1, 3, 7 and then 15 ticks between attempts (every 16th tick at most). Until the
+hook succeeds in the current activation, the watchdog fills no window and restarts no step whose lease expired. An
+activation that has not run the hook yet (cold, never resumed) resumes itself the same way on its first watchdog tick,
+after the startup delay gave rehydration and membership recovery first chance. This applies only while the watchdog
+is enabled: with `JobWatchdogInterval` zero, negative or infinite nothing could settle the hook, so a cold activation
+dispatches as before. A hook that actually failed still holds dispatch even then, until an explicit `Resume` succeeds. A job that was reverted to `Stopped`,
+or stopped later, is never resumed by the watchdog. With `JobWatchdogInterval` off, nothing retries.
+
+### Resume a job only while it is running
+
+`IJob.ResumeIfRunning()` and `IJobsManager.ResumeIfRunning(jobId)` resume a job only when its stored status is
+`Running`. The check runs in the job grain's own turn, so a `Stop` or `Remove` is serialized before or after the whole
+call and can never land between the check and the resume. On a cold activation the check reads the durable status.
+For a `Running` job it behaves exactly like `Resume()`. For any other status it changes nothing, runs no hook and
+starts no step, and returns `ResumeJobSuccess.JobIsNotRunning`. A failure is still an error: the manager answers
+`CannotResumeJobError.Unknown` when it cannot reach the job. `Resume` stays unrestricted, so an operator can still
+resume a stopped job.
+
+```csharp
+var result = await jobsManager.ResumeIfRunning(jobId);
+result.Match(
+    success => success == ResumeJobSuccess.JobIsNotRunning ? Skipped(jobId) : Resumed(jobId),
+    error => Failed(jobId, error));
+```
 
 ### Attempts and retries
 

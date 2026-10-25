@@ -22,4 +22,9 @@ public enum ResumeJobSuccess
     /// Job cannot be resumed because it is already running.
     /// </summary>
     JobAlreadyRunning = 2,
+
+    /// <summary>
+    /// The job was not Running; nothing was done.
+    /// </summary>
+    JobIsNotRunning = 3,
 }

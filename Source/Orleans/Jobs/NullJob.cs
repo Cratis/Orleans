@@ -27,6 +27,9 @@ public class NullJob : IJob
     public Task<Result<ResumeJobSuccess, ResumeJobError>> Resume() => Task.FromResult(Result.Success<ResumeJobSuccess, ResumeJobError>(ResumeJobSuccess.Success));
 
     /// <inheritdoc/>
+    public Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeIfRunning() => Task.FromResult(Result.Success<ResumeJobSuccess, ResumeJobError>(ResumeJobSuccess.JobIsNotRunning));
+
+    /// <inheritdoc/>
     public Task<Result<RemoveJobError>> Remove() => Task.FromResult(Result.Success<RemoveJobError>());
 
     /// <inheritdoc/>

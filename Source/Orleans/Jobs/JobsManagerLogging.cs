@@ -65,6 +65,12 @@ public static partial class JobsManagerLogMessages
     [LoggerMessage(LogLevel.Debug, "Job {JobId} cannot be resumed because it is running")]
     public static partial void CannotResumeJobBecauseAlreadyRunning(this ILogger<JobsManager> logger, JobId jobId);
 
+    [LoggerMessage(LogLevel.Debug, "Resuming job {JobId} only if it is running")]
+    public static partial void ResumingJobIfRunning(this ILogger<JobsManager> logger, JobId jobId);
+
+    [LoggerMessage(LogLevel.Information, "Job {JobId} was not resumed because it is not running")]
+    public static partial void NotResumingJobBecauseItIsNotRunning(this ILogger<JobsManager> logger, JobId jobId);
+
     [LoggerMessage(LogLevel.Debug, "Job {JobId} cannot be resumed because it is completed")]
     public static partial void CannotResumeJobBecauseCompleted(this ILogger<JobsManager> logger, JobId jobId);
 

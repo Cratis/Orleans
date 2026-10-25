@@ -82,6 +82,14 @@ public abstract partial class Job<TRequest, TJobState>
     /// <returns>A task representing the operation.</returns>
     async Task FillWindow()
     {
+        if (!_resumeHookOwed)
+        {
+            await FillWindowOfAnActivationThatMayDispatch();
+        }
+    }
+
+    async Task FillWindowOfAnActivationThatMayDispatch()
+    {
         if (EffectiveMaxActiveSteps is null || State.DrainPending || State.Status is not (JobStatus.Running or JobStatus.StartingSteps))
         {
             return;

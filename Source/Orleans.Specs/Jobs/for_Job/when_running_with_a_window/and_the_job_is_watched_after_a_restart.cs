@@ -28,11 +28,12 @@ public class and_the_job_is_watched_after_a_restart : for_Job.given.the_job
         }
         _job.CurrentState.Status = JobStatus.Running;
         _job.CurrentState.Progress.TotalSteps = 5;
+        _job.CurrentState.Request = new for_Job.given.SomeRequest();
         await _job.OnActivateAsync(CancellationToken.None);
     }
 
     Task Because() => _job.RunWatchdog();
 
-    [Fact] void should_not_widen_the_window_beyond_the_steps_that_are_running() => _steps.ShouldEachConformTo(step => step.Invocations.All(_ => _.Method.Name != nameof(IJobStep.Start)));
+    [Fact] void should_not_widen_the_window_beyond_the_steps_that_are_running() => _steps.Skip(2).ShouldEachConformTo(step => step.Invocations.All(_ => _.Method.Name != nameof(IJobStep.Start)));
     [Fact] void should_leave_the_job_running() => _job.CurrentState.Status.ShouldEqual(JobStatus.Running);
 }

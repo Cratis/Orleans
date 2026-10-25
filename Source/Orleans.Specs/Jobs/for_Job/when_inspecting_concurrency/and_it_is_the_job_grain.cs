@@ -21,5 +21,6 @@ public class and_it_is_the_job_grain : Specification
     [Fact] void should_inspect_the_job_interface() => _grainInterfaces.Any(_ => _.IsGenericType && _.GetGenericTypeDefinition() == typeof(IJob<>)).ShouldBeTrue();
     [Fact] void should_inspect_the_untyped_job_interface() => _grainInterfaces.ShouldContain(typeof(IJob));
     [Fact] void should_inspect_the_drain_interface() => _grainInterfaces.ShouldContain(typeof(IJobDrain));
+    [Fact] void should_inspect_the_conditional_resume() => _grainInterfaces.SelectMany(_ => _.GetMethods()).Any(_ => _.Name == nameof(IJob.ResumeIfRunning)).ShouldBeTrue();
     [Fact] void should_not_let_any_call_interleave() => _markings.ShouldBeEmpty();
 }
