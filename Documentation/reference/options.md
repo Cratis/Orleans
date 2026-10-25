@@ -25,7 +25,7 @@ setup registers the defaults.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `MaxParallelSteps` | processor count − 1, minimum 1 | How many steps of one job may run concurrently |
+| `MaxParallelSteps` | processor count − 1, minimum 1 | How many steps may run concurrently on one silo |
 | `DeadJobThreshold` | 1 hour | How old a job stuck in preparation with no steps may be before cleanup removes it |
 | `CleanupCadence` | 1 hour | How often the scavenger looks for dead jobs |
 | `StepCheckpointBatchInterval` | 100 | How many reported batches a step accumulates before its progress checkpoint is persisted |
@@ -64,7 +64,7 @@ or silo shutdown. These stop further dispatch; jobs not yet resumed remain in st
 `Rehydrate()` call or host startup. The drain is activation-owned, not a durable queue or a cluster-wide
 concurrency limit. Already dispatched calls may finish after cancellation.
 
-`GetEffectiveMaxParallelSteps()` returns `MaxParallelSteps ?? Math.Max(1, Environment.ProcessorCount - 1)`.
+`GetEffectiveMaxParallelSteps()` returns `MaxParallelSteps ?? Math.Max(1, Environment.ProcessorCount - 1)`. The limit applies per silo. To give silos different limits, call `UseJobStepParallelismFromSiloMetadata()`: each silo reads the `cratis.jobs.max-parallel-steps` silo metadata value (or a key you pass), and falls back to these options when the value is missing, invalid or not positive.
 
 ## MongoDBJobsStorageOptions
 

@@ -10,13 +10,23 @@ namespace Cratis.Orleans.Jobs;
 /// Represents an implementation of <see cref="IJobStepThrottle"/>.
 /// </summary>
 /// <remarks>
-/// Initializes a new instance of the <see cref="JobStepThrottle"/> class.
+/// The limit applies per silo, because the throttle is a singleton of the silo it runs in.
 /// </remarks>
-/// <param name="options">The <see cref="JobsOptions"/>.</param>
+/// <param name="maxParallelSteps">The number of job steps that may run in parallel on this silo. Values below one are treated as one.</param>
 /// <param name="logger">Logger for logging.</param>
-public class JobStepThrottle(IOptions<JobsOptions> options, ILogger<JobStepThrottle> logger) : IJobStepThrottle, IDisposable
+public class JobStepThrottle(int maxParallelSteps, ILogger<JobStepThrottle> logger) : IJobStepThrottle, IDisposable
 {
-    readonly SemaphoreSlim _semaphore = CreateSemaphore(GetEffectiveParallelism(options.Value));
+    readonly SemaphoreSlim _semaphore = CreateSemaphore(Math.Max(1, maxParallelSteps));
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobStepThrottle"/> class with the limit from the <see cref="JobsOptions"/>.
+    /// </summary>
+    /// <param name="options">The <see cref="JobsOptions"/>.</param>
+    /// <param name="logger">Logger for logging.</param>
+    public JobStepThrottle(IOptions<JobsOptions> options, ILogger<JobStepThrottle> logger)
+        : this(GetEffectiveParallelism(options.Value), logger)
+    {
+    }
 
     /// <inheritdoc/>
     public Task AcquireAsync(CancellationToken cancellationToken = default)

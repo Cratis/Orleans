@@ -135,6 +135,26 @@ protected override Task<IImmutableList<JobStepDetails>> PrepareSteps(RecoveryReq
 
 A job is a grain of its own type, so Orleans only considers silos that have that job's class loaded. A silo that does not host a particular job never receives it. Among the silos that do host it, jobs use resource-optimized placement: a new job activates on the silo with the most headroom for CPU, memory and activations, rather than on whichever silo happened to receive the request that started it. Scaling a service out therefore spreads job load instead of pinning it to the busiest replica.
 
+### Placing controllers and workers independently
+
+A host that wants job controllers (the job grains) on some silos and step workers (the job step grains) on others
+can opt in to host-chosen placement. Enabling the job placement strategy makes every job grain use a director you
+register; enabling the job step strategy does the same for step grains. Each is independent, and neither is on
+by default. See [Host the silo](../how-to/host-the-silo.md#place-job-controllers-and-step-workers-separately).
+
+A director answers where a grain activates and throws `NoEligibleJobWorker` when no silo qualifies. What that
+means depends on when it happens:
+
+- **Starting a job: preparing a step fails.** The job ends `Failed` with the director's message in its status
+  history, and `Start` returns `StartJobError.Unknown`.
+- **Starting a job: starting a prepared step fails.** The step counts as failed and the job completes with
+  failures. The step's stored state stays `Prepared`.
+- **Resuming or recovering a job.** The job stays `Running`. The job's in-memory watchdog retries the step
+  once per `JobWatchdogInterval` until a worker appears.
+
+The retry is not durable: it does not survive the job's silo going away, and Cratis does not provide a durable
+waiting state for a job that has no worker.
+
 ## Starting, stopping and deleting jobs while two releases share a cluster
 
 During a rolling upgrade, a shared jobs manager may still run on the older release. Calling its generic
