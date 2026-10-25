@@ -12,7 +12,7 @@ public abstract class a_job_that_is_not_running : for_Job.given.a_job_left_runni
 
     void Establish()
     {
-        _job.CurrentState.Request = new SomeRequest();
+        _job.CurrentState.Request = new for_Job.given.SomeRequest();
         _job.ShouldBeResumable = true;
         _job.CurrentState.Status = Status;
         _writesBefore = Writes;

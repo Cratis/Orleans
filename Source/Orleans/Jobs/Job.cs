@@ -130,6 +130,7 @@ public abstract partial class Job<TRequest, TJobState> : Grain<TJobState>, IJob<
             _jobStepGrains = await GetIdAndGrainReferenceForNonCompletedJobSteps();
             await CountStepsFromStorageAfterActivation();
         }
+
         // Only a watchdog can settle a cold activation's hook; without one, dispatch keeps today's behavior.
         _resumeHookOwed = JobIsRunning() && WatchdogIsEnabled;
         if (State.Status is JobStatus.Running)

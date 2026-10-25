@@ -10,7 +10,7 @@ public class and_the_resume_hook_has_not_run_since_activation : given.a_job_with
         StoredJobStep(_stepIds[0]).Lease = LeaseFor("silo-gone", TimeSpan.FromMinutes(10));
         StoredJobStep(_stepIds[1]).Lease = LeaseFor("silo-alive", TimeSpan.FromSeconds(5));
         _job.ActiveSiloAddresses = new HashSet<string> { "silo-alive" };
-        _job.CurrentState.Request = new SomeRequest();
+        _job.CurrentState.Request = new for_Job.given.SomeRequest();
         _job.BeforeResuming = () => Task.CompletedTask;
         await _job.OnActivateAsync(CancellationToken.None);
     }

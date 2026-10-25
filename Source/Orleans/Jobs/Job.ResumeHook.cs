@@ -7,7 +7,9 @@ public abstract partial class Job<TRequest, TJobState>
 {
     const int MaxResumeRetryTicksToSkip = 15;
 
-    // This activation holds an execution whose resume hook has not succeeded here; it gates dispatch.
+    /// <summary>
+    /// Whether this activation holds an execution whose resume hook has not succeeded here; it gates dispatch.
+    /// </summary>
     bool _resumeHookOwed;
     int _resumeHookFailures;
     int _resumeRetryTicksToSkip;
@@ -30,8 +32,11 @@ public abstract partial class Job<TRequest, TJobState>
         _resumeRetryTicksToSkip = 0;
     }
 
-    // An activation that has not run the resume hook (cold, or its last attempt failed) resumes itself on a watchdog
-    // tick, after the startup delay gave recovery first chance; nothing dispatches until the hook has succeeded.
+    /// <summary>
+    /// An activation that has not run the resume hook (cold, or its last attempt failed) resumes itself on a watchdog
+    /// tick, after the startup delay gave recovery first chance; nothing dispatches until the hook has succeeded.
+    /// </summary>
+    /// <returns>True when the watchdog must not dispatch on this tick.</returns>
     async Task<bool> HoldDispatchUntilResumeHookSucceeds()
     {
         if (!_resumeHookOwed)

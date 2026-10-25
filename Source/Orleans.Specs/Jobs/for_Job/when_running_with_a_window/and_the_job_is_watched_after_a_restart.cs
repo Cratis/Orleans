@@ -28,7 +28,7 @@ public class and_the_job_is_watched_after_a_restart : for_Job.given.the_job
         }
         _job.CurrentState.Status = JobStatus.Running;
         _job.CurrentState.Progress.TotalSteps = 5;
-        _job.CurrentState.Request = new SomeRequest();
+        _job.CurrentState.Request = new for_Job.given.SomeRequest();
         await _job.OnActivateAsync(CancellationToken.None);
     }
 

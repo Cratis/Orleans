@@ -32,7 +32,7 @@ public interface IJob : IGrainWithGuidCompoundKey
     Task<Result<ResumeJobSuccess, ResumeJobError>> Resume();
 
     /// <summary>
-    /// Resume a job only when its stored status is <see cref="Storage.Jobs.JobStatus.Running"/>.
+    /// Resume a job only when its stored status is <see cref="JobStatus.Running"/>.
     /// </summary>
     /// <returns>Awaitable task.</returns>
     /// <remarks>

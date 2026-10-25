@@ -10,7 +10,7 @@ public class and_the_resume_hook_throws_on_the_first_tick_after_activation : giv
         StoredJobStep(_stepIds[0]).Lease = LeaseFor("silo-gone", TimeSpan.FromMinutes(10));
         StoredJobStep(_stepIds[1]).Lease = LeaseFor("silo-alive", TimeSpan.FromSeconds(5));
         _job.ActiveSiloAddresses = new HashSet<string> { "silo-alive" };
-        _job.CurrentState.Request = new SomeRequest();
+        _job.CurrentState.Request = new for_Job.given.SomeRequest();
         _job.BeforeResuming = () => Task.FromException(new InvalidOperationException("Resume was rejected"));
         await _job.OnActivateAsync(CancellationToken.None);
     }

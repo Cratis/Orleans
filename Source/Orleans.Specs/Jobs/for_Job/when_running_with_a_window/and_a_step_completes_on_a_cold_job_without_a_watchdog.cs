@@ -7,7 +7,16 @@ public class and_a_step_completes_on_a_cold_job_without_a_watchdog : given.a_win
 {
     protected override JobsOptions CreateOptions() => new() { JobWatchdogInterval = TimeSpan.Zero };
 
-    async Task Establish() => await _job.OnActivateAsync(CancellationToken.None);
+    async Task Establish()
+    {
+        // What storage holds when the silo went away: the two steps of the window running, the rest still waiting.
+        for (var index = 2; index < NumberOfSteps; index++)
+        {
+            StoredJobStep(_stepIds[index]).Status = JobStepStatus.Unknown;
+        }
+        CountStepsInStorage((JobStepStatus.Running, 2), (JobStepStatus.Unknown, 3));
+        await _job.OnActivateAsync(CancellationToken.None);
+    }
 
     Task Because() => Succeed(0);
 
