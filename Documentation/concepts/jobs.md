@@ -613,6 +613,11 @@ response timeout - has not refused. The operation fails instead: `Start` answers
 `Running` in storage, and rehydration asks again only on its next pass. A job that cannot be asked at its next
 stage stays `Running`, does not start the stage, and asks again at the same interval until it gets an answer.
 
+With an admission registered, a missing stored request is also an operational failure, not a refusal or permission
+to run. No policy is called without a request, and a warning identifies the checkpoint without logging a request
+payload. A later stage stays `Running` and keeps retrying and logging a warning while the request is missing.
+Without any admissions registered, a missing request does not block execution.
+
 Admission gates every new execution - `Start`, every `Resume` path, every later stage - and the drain ends the
 one that is running. An owner that changes what its jobs may do therefore quiesces them in this order: call
 `IJobs.StopAndDrain` for its running jobs first, then refuse them from `MayRun`. Refusing without draining leaves

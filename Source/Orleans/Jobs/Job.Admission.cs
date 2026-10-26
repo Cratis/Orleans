@@ -62,8 +62,8 @@ public abstract partial class Job<TRequest, TJobState>
 
         if (request is null)
         {
-            _logger.AdmittingJobWithoutRequest(checkPoint);
-            return Admission.Admitted;
+            _logger.AdmissionFailedBecauseRequestIsMissing(checkPoint);
+            return Admission.Failed;
         }
 
         var question = new JobAdmissionRequest(JobKey, JobId, State.Type, request);
