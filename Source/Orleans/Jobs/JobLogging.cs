@@ -215,8 +215,8 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Warning, "Job admission failed at {CheckPoint}; it is neither admitted nor refused")]
     internal static partial void AdmissionFailed(this ILogger<IJob> logger, Exception ex, string checkPoint);
 
-    [LoggerMessage(LogLevel.Warning, "Job has no request to ask admission about at {CheckPoint}; admitting it")]
-    internal static partial void AdmittingJobWithoutRequest(this ILogger<IJob> logger, string checkPoint);
+    [LoggerMessage(LogLevel.Warning, "Job admission failed at {CheckPoint} because the stored request is missing; it is neither admitted nor refused")]
+    internal static partial void AdmissionFailedBecauseRequestIsMissing(this ILogger<IJob> logger, string checkPoint);
 
     [LoggerMessage(LogLevel.Warning, "Job could not be stopped because the stop was not persisted; it was left as it was")]
     internal static partial void FailedStoppingJobBecauseItWasNotPersisted(this ILogger<IJob> logger, Exception exception);
