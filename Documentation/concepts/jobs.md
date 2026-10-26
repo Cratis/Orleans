@@ -435,6 +435,13 @@ of a job already `Running` or `StartingSteps` may still have live work. Hook fai
 back or drain them. Nor does compensation cover a failure after step dispatch begins: some steps may already
 be running.
 
+When an incomplete stop's failed resume hook leaves the job `Running`, a later manual `Resume()` or watchdog
+retry can recover steps stopped before that execution, provided no stops have been counted in it. The retry
+keeps the same execution generation and preserves live outcome tracking, without reviving accepted terminal
+outcomes or interrupting pending retries. Recovered steps start only after the resume and dispatch hooks succeed,
+within the current stage and available concurrency window; later-stage steps wait for their stage. The late-report
+generation rules above still apply. A fully stopped job restored by compensation still requires an explicit resume.
+
 If the resume or compensating status write fails, the eligible stopped job's activation retires rather than
 serve an uncertain state. Recovery reads whichever status reached storage. A crash after `Running` was written
 but before compensation can also leave that status persisted; cold recovery can retry the hook and the stopped

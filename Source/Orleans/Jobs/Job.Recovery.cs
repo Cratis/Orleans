@@ -52,14 +52,15 @@ public abstract partial class Job<TRequest, TJobState>
             return Result.Failed<ResumeJobSuccess, ResumeJobError>(CannotResumeJobError.JobIsNotPrepared);
         }
 
-        var restartStoppedSteps = !_hasLiveStepTracking && State.Status is JobStatus.Running && StoppedStepsPredateLastRunning();
-        var resumable = restartStoppedSteps
+        var restartStoppedSteps = State.Status is JobStatus.Running && StoppedStepsPredateLastRunning();
+        var resumable = !_hasLiveStepTracking && restartStoppedSteps
             ? await GetIdAndGrainReferenceForNonCompletedJobSteps()
             : await GetIdAndGrainReferenceJobSteps(JobStepStatus.Scheduled, JobStepStatus.Running, JobStepStatus.Unknown);
         if (_hasLiveStepTracking)
         {
             // Storage and outcome delivery are not atomic: success deletes storage before its report,
             // failure reports before moving storage. Only this activation knows which reports it accepted.
+            await RestoreStoppedStepsToLiveTracking(resumable, restartStoppedSteps);
             var tracked = StepsInCurrentStage().Where(step => resumable.ContainsKey(step.Key))
                 .ToDictionary(step => step.Key, step => step.Value);
             await RunResumeHook();
@@ -92,6 +93,25 @@ public abstract partial class Job<TRequest, TJobState>
         await RunResumeHook();
         await RunDispatchHook(initializationMayBeIncomplete: false);
         return await ResumeCurrentStage(StepsInCurrentStage(), reportAlreadyRunning: _hasDispatchedSteps);
+    }
+
+    async Task RestoreStoppedStepsToLiveTracking(Dictionary<JobStepId, IJobStep> resumable, bool restartStoppedSteps)
+    {
+        if (!restartStoppedSteps)
+        {
+            return;
+        }
+
+        // A counted stop may have removed its step from tracking before the rejected resume. Restore only
+        // old stopped work, never an accepted terminal outcome or a step waiting for its pending retry.
+        var stopped = await GetIdAndGrainReferenceJobSteps(JobStepStatus.Stopped);
+        _jobStepGrains ??= [];
+        foreach (var step in stopped.Where(step => !OutcomeWasCounted(step.Key) && !_pendingRetries.ContainsKey(step.Key)))
+        {
+            _jobStepGrains.TryAdd(step.Key, step.Value);
+            resumable[step.Key] = _jobStepGrains[step.Key];
+            LeaveWindow(step.Key);
+        }
     }
 
     async Task<Result<ResumeJobSuccess, ResumeJobError>> ResumeCurrentStage(Dictionary<JobStepId, IJobStep> steps, bool reportAlreadyRunning)
