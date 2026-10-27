@@ -726,7 +726,10 @@ The watchdog also retries steps whose start threw during resume, without requiri
 
 When `OnBeforeResumingJobSteps` throws for a job that is `Running`, the job stays `Running` and the watchdog retries
 the resume through `Resume` on the next tick, then skips 1, 3, 7 and then 15 ticks between attempts (every 16th tick at most). Until the
-hook succeeds in the current activation, the watchdog fills no window, restarts no step whose lease expired and starts no next stage. An
+hook succeeds in the current activation, the watchdog fills no window, restarts no step whose lease expired and starts no next stage.
+Pending step retries are also held without consuming their attempts or counting failures; the retry timer checks again
+after a short delay rather than spinning on an overdue attempt. Once the hook succeeds, retries are re-armed for their
+original due times and overdue attempts can run immediately. An
 activation that has not run the hook yet (cold, never resumed) resumes itself the same way on its first watchdog tick,
 after the startup delay gave rehydration and membership recovery first chance. This applies only while the watchdog
 is enabled: with `JobWatchdogInterval` zero, negative or infinite nothing could settle the hook, so a cold activation
@@ -755,7 +758,8 @@ result.Match(
 `JobsOptions.MaxStepAttempts` (default 1) lets a failed step run again. The step records the failed attempt, the
 job decides whether to retry through `Job.ShouldRetryStep(stepId, result, attempt)` and schedules the next
 attempt after an exponential backoff (`StepRetryBackoff`, `MaxStepRetryBackoff`, or override
-`Job.GetStepRetryDelay`). A retried failure is not counted as a failure until its attempts run out. The pending
+`Job.GetStepRetryDelay`). A retried failure is not counted as a failure until its attempts run out. While the resume
+hook is owed, due attempts wait; a stop or removal counts them as failed, as it does for any pending attempt. The pending
 retry schedule lives in the job's memory: after the job is reactivated, a failed attempt counts as final.
 
 ### Run the failed steps again

@@ -257,6 +257,9 @@ public static partial class JobLogMessages
     [LoggerMessage(LogLevel.Information, "Step {StepId} failed; attempt {Attempt} is scheduled in {Delay}")]
     internal static partial void SchedulingStepRetry(this ILogger<IJob> logger, JobStepId stepId, int attempt, TimeSpan delay);
 
+    [LoggerMessage(LogLevel.Debug, "Holding {Count} step retries until the resume hook succeeds")]
+    internal static partial void HoldingStepRetriesUntilResumeHookSucceeds(this ILogger<IJob> logger, int count);
+
     [LoggerMessage(LogLevel.Debug, "The outcome of step {StepId} was already counted, but could not be saved; the step reports it again")]
     internal static partial void CountedOutcomeNotSaved(this ILogger<IJob> logger, JobStepId stepId);
 

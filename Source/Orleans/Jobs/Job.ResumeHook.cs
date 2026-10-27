@@ -30,6 +30,7 @@ public abstract partial class Job<TRequest, TJobState>
         _resumeHookOwed = false;
         _resumeHookFailures = 0;
         _resumeRetryTicksToSkip = 0;
+        ArmRetryTimer();
     }
 
     /// <summary>
