@@ -21,6 +21,8 @@ public abstract partial class Job<TRequest, TJobState>
     /// </remarks>
     protected virtual bool CanRetryFailedSteps => false;
 
+    bool RetryDispatchIsHeld => _resumeHookOwed;
+
     /// <inheritdoc/>
     public async Task<Result<int, RetryFailedStepsError>> RetryFailed()
     {
@@ -102,13 +104,14 @@ public abstract partial class Job<TRequest, TJobState>
             return;
         }
 
+        using var scope = _logger.BeginJobScope(JobId, JobKey);
         if (RetryDispatchIsHeld)
         {
+            _logger.HoldingStepRetriesUntilResumeHookSucceeds(_pendingRetries.Count);
             ArmRetryTimer();
             return;
         }
 
-        using var scope = _logger.BeginJobScope(JobId, JobKey);
         var now = DateTimeOffset.UtcNow;
         var due = _pendingRetries.Where(_ => _.Value.Due <= now).ToList();
         foreach (var (stepId, (attempt, _)) in due)
@@ -119,34 +122,7 @@ public abstract partial class Job<TRequest, TJobState>
                 continue;
             }
 
-            Result<StartJobStepError> started;
-            try
-            {
-                using (JobExecutionGeneration.Carry(ExecutionGeneration()))
-                {
-                    started = await step!.Retry(this.GetGrainId(), attempt);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.FailedStartingJobStep(ex, stepId);
-                await CountFailureOfRetryThatCouldNotStart(stepId);
-                continue;
-            }
-
-            if (!started.TryGetError(out var error))
-            {
-                continue;
-            }
-            if (error is StartJobStepError.AlreadyStarted)
-            {
-                // The step is still delivering the failed attempt; ask again shortly.
-                _pendingRetries[stepId] = (attempt, DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1));
-                continue;
-            }
-
-            _logger.FailedStartingJobStep(stepId, error);
-            await CountFailureOfRetryThatCouldNotStart(stepId);
+            await RetryStep(stepId, step!, attempt);
         }
 
         ArmRetryTimer();
@@ -198,6 +174,38 @@ public abstract partial class Job<TRequest, TJobState>
         }
     }
 
+    async Task RetryStep(JobStepId stepId, IJobStep step, int attempt)
+    {
+        Result<StartJobStepError> started;
+        try
+        {
+            using (JobExecutionGeneration.Carry(ExecutionGeneration()))
+            {
+                started = await step.Retry(this.GetGrainId(), attempt);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.FailedStartingJobStep(ex, stepId);
+            await CountFailureOfRetryThatCouldNotStart(stepId);
+            return;
+        }
+
+        if (!started.TryGetError(out var error))
+        {
+            return;
+        }
+        if (error is StartJobStepError.AlreadyStarted)
+        {
+            // The step is still delivering the failed attempt; ask again shortly.
+            _pendingRetries[stepId] = (attempt, DateTimeOffset.UtcNow + TimeSpan.FromSeconds(1));
+            return;
+        }
+
+        _logger.FailedStartingJobStep(stepId, error);
+        await CountFailureOfRetryThatCouldNotStart(stepId);
+    }
+
     void ScheduleStepRetry(JobStepId stepId, int failedAttempt)
     {
         var delay = GetStepRetryDelay(failedAttempt);
@@ -205,8 +213,6 @@ public abstract partial class Job<TRequest, TJobState>
         _pendingRetries[stepId] = (failedAttempt + 1, DateTimeOffset.UtcNow + delay);
         ArmRetryTimer();
     }
-
-    bool RetryDispatchIsHeld => State.Status == JobStatus.Running && WatchdogMustSettleResumeHook;
 
     void ArmRetryTimer()
     {

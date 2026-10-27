@@ -758,7 +758,8 @@ result.Match(
 `JobsOptions.MaxStepAttempts` (default 1) lets a failed step run again. The step records the failed attempt, the
 job decides whether to retry through `Job.ShouldRetryStep(stepId, result, attempt)` and schedules the next
 attempt after an exponential backoff (`StepRetryBackoff`, `MaxStepRetryBackoff`, or override
-`Job.GetStepRetryDelay`). A retried failure is not counted as a failure until its attempts run out. The pending
+`Job.GetStepRetryDelay`). A retried failure is not counted as a failure until its attempts run out. While the resume
+hook is owed, due attempts wait; a stop or removal counts them as failed, as it does for any pending attempt. The pending
 retry schedule lives in the job's memory: after the job is reactivated, a failed attempt counts as final.
 
 ### Run the failed steps again
