@@ -102,6 +102,12 @@ public abstract partial class Job<TRequest, TJobState>
             return;
         }
 
+        if (RetryDispatchIsHeld)
+        {
+            ArmRetryTimer();
+            return;
+        }
+
         using var scope = _logger.BeginJobScope(JobId, JobKey);
         var now = DateTimeOffset.UtcNow;
         var due = _pendingRetries.Where(_ => _.Value.Due <= now).ToList();
@@ -200,6 +206,8 @@ public abstract partial class Job<TRequest, TJobState>
         ArmRetryTimer();
     }
 
+    bool RetryDispatchIsHeld => State.Status == JobStatus.Running && WatchdogMustSettleResumeHook;
+
     void ArmRetryTimer()
     {
         _retryTimer?.Dispose();
@@ -210,7 +218,7 @@ public abstract partial class Job<TRequest, TJobState>
         }
 
         var next = _pendingRetries.Values.Min(_ => _.Due);
-        var dueIn = next - DateTimeOffset.UtcNow;
+        var dueIn = RetryDispatchIsHeld ? TimeSpan.FromSeconds(1) : next - DateTimeOffset.UtcNow;
         _retryTimer = this.RegisterGrainTimer(
             _ => RetryDueSteps(),
             new GrainTimerCreationOptions
