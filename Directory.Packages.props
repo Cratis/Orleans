@@ -5,15 +5,15 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Orleans -->
-    <PackageVersion Include="Microsoft.Orleans.Core.Abstractions" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Core.Abstractions" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Orleans.Client" Version="10.3.1" />
-    <PackageVersion Include="Microsoft.Orleans.Server" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Orleans.Sdk" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Orleans.Serialization" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Server" Version="10.4.1" />
+    <PackageVersion Include="Microsoft.Orleans.Reminders" Version="10.4.1" />
+    <PackageVersion Include="Microsoft.Orleans.Sdk" Version="10.4.1" />
+    <PackageVersion Include="Microsoft.Orleans.Serialization" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Orleans.Serialization.Abstractions" Version="10.3.1" />
-    <PackageVersion Include="Microsoft.Orleans.Serialization.SystemTextJson" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Orleans.Serialization.SystemTextJson" Version="10.4.1" />
+    <PackageVersion Include="Microsoft.Orleans.TestingHost" Version="10.4.1" />
     <PackageVersion Include="Microsoft.Orleans.Analyzers" Version="10.3.1" />
     <PackageVersion Include="OrleansTestKit10" Version="10.0.0" />
     <!--
@@ -31,7 +31,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- EF Core (SQL storage) -->
-    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.146.0" />
+    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.148.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
@@ -41,8 +41,8 @@
          references it directly; drop this when SqlClient's own floor is 10.0.13 or later. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <!-- Cratis -->
-    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.146.0" />
-    <PackageVersion Include="Cratis.Chronicle" Version="19.111.0" />
+    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.148.0" />
+    <PackageVersion Include="Cratis.Chronicle" Version="19.112.4" />
     <PackageVersion Include="Cratis.Chronicle.XUnit.Integration" Version="19.14.0" />
     <!-- Cratis.Chronicle's net9.0 assembly is compiled against System.Collections.Immutable 10 without declaring it for net9.0. -->
     <PackageVersion Include="System.Collections.Immutable" Version="10.0.0" />
