@@ -31,7 +31,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
     <!-- EF Core (SQL storage) -->
-    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.153.0" />
+    <PackageVersion Include="Cratis.Arc.EntityFrameworkCore" Version="22.153.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
@@ -41,14 +41,14 @@
          references it directly; drop this when SqlClient's own floor is 10.0.13 or later. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <!-- Cratis -->
-    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.153.0" />
-    <PackageVersion Include="Cratis.Chronicle" Version="19.114.0" />
+    <PackageVersion Include="Cratis.Arc.MongoDB" Version="22.153.1" />
+    <PackageVersion Include="Cratis.Chronicle" Version="19.114.1" />
     <PackageVersion Include="Cratis.Chronicle.XUnit.Integration" Version="19.14.0" />
     <!-- Cratis.Chronicle's net9.0 assembly is compiled against System.Collections.Immutable 10 without declaring it for net9.0. -->
     <PackageVersion Include="System.Collections.Immutable" Version="10.0.0" />
-    <PackageVersion Include="Cratis.Fundamentals" Version="7.29.0" />
-    <PackageVersion Include="Cratis.Metrics.Roslyn" Version="7.29.0" />
-    <PackageVersion Include="Cratis.Specifications.XUnit.v3" Version="5.1.0" />
+    <PackageVersion Include="Cratis.Fundamentals" Version="7.30.0" />
+    <PackageVersion Include="Cratis.Metrics.Roslyn" Version="7.30.0" />
+    <PackageVersion Include="Cratis.Specifications.XUnit.v3" Version="5.2.0" />
     <!-- Serialization & primitives -->
     <PackageVersion Include="System.Text.Json" Version="10.0.14" />
     <PackageVersion Include="OneOf" Version="3.0.271" />
@@ -57,7 +57,7 @@
     <!-- Analyzers (referenced PrivateAssets="All" from Directory.Build.props) -->
     <PackageVersion Include="StyleCop.Analyzers" Version="1.2.0-beta.556" NoWarn="NU5104" />
     <PackageVersion Include="Roslynator.Analyzers" Version="5.0.1" />
-    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.317" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.318" />
     <!-- Specs -->
     <PackageVersion Include="xunit.v3.mtp-off" Version="4.0.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
